@@ -67,11 +67,10 @@ node -v && ollama --version
 Any Ollama model that can read images works. The app doesn't require a specific one. Some examples:
 
 ```bash
-ollama pull qwen2.5vl:3b      # small and fast; fine on 8 GB machines
-ollama pull qwen2.5vl:7b      # noticeably better on messy handwriting; needs more memory
+ollama pull qwen2.5vl:3b            # small and fast; fine on 8 GB machines
+ollama pull qwen3-vl:4b-instruct    # newer; also runs on 8 GB machines (use the -instruct tag)
 ```
-
-Other vision models, such as the Qwen3-VL (be sure to pull the Instruct variant, such as qwen3-vl:4b-instruct), Gemma 3, Llama 3.2 Vision, and MiniCPM-V families, also work. Larger models are more accurate but slower. You can switch models at any time in the app.
+Other vision models might also work. Larger models are more accurate but slower. You can switch models at any time in the app.
 
 ---
 
