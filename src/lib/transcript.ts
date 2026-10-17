@@ -12,8 +12,10 @@ export function cleanModelOutput(raw: string): string {
   const fence = t.match(/^\s*```[a-zA-Z]*[ \t]*\n([\s\S]*?)(?:\n```\s*)?$/);
   if (fence) t = fence[1];
   // Normalize LaTeX delimiters to $ / $$ so there is one canonical form for editing.
-  t = t.replace(/(?<!\\)\\\[([\s\S]*?)(?<!\\)\\\]/g, (_, m: string) => `$$${m}$$`);
-  t = t.replace(/(?<!\\)\\\(([\s\S]*?)(?<!\\)\\\)/g, (_, m: string) => `$${m}$`);
+  // Trim the contents: some models write "\( x \)", and "$ x $" would not count as math
+  // (an opening $ followed by a space is text, so "$5 and $10" stays text).
+  t = t.replace(/(?<!\\)\\\[([\s\S]*?)(?<!\\)\\\]/g, (_, m: string) => `$$${m.trim()}$$`);
+  t = t.replace(/(?<!\\)\\\(([\s\S]*?)(?<!\\)\\\)/g, (_, m: string) => `$${m.trim()}$`);
   t = unwrapTextMath(t);
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
