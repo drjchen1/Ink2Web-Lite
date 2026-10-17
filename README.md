@@ -71,7 +71,7 @@ ollama pull qwen2.5vl:3b      # small and fast; fine on 8 GB machines
 ollama pull qwen2.5vl:7b      # noticeably better on messy handwriting; needs more memory
 ```
 
-Other vision models, such as the Qwen3-VL, Gemma 3, Llama 3.2 Vision, and MiniCPM-V families, also work. Larger models are more accurate but slower. You can switch models at any time in the app.
+Other vision models, such as the Qwen3-VL (be sure to pull the Instruct variant, such as qwen3-vl:4b-instruct), Gemma 3, Llama 3.2 Vision, and MiniCPM-V families, also work. Larger models are more accurate but slower. You can switch models at any time in the app.
 
 ---
 
