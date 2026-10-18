@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import type { ModelInfo, Page, Settings } from './types.ts';
+import type { ModelInfo, Page, PageStatus, Settings } from './types.ts';
 import { listModels } from './lib/ollama.ts';
 import { ACCEPT, loadFile } from './lib/images.ts';
 import { convertPage } from './lib/pipeline.ts';
@@ -25,6 +25,7 @@ function loadSettings(): Settings {
 type Action =
   | { type: 'add'; pages: Page[] }
   | { type: 'update'; id: string; patch: Partial<Page> }
+  | { type: 'setStatus'; from: PageStatus[]; to: PageStatus }
   | { type: 'remove'; id: string }
   | { type: 'move'; id: string; dir: -1 | 1 }
   | { type: 'clear' };
@@ -35,6 +36,8 @@ function reducer(pages: Page[], a: Action): Page[] {
       return [...pages, ...a.pages];
     case 'update':
       return pages.map((p) => (p.id === a.id ? { ...p, ...a.patch } : p));
+    case 'setStatus':
+      return pages.map((p) => (a.from.includes(p.status) ? { ...p, status: a.to, error: undefined } : p));
     case 'remove':
       return pages.filter((p) => p.id !== a.id);
     case 'move': {
@@ -49,6 +52,9 @@ function reducer(pages: Page[], a: Action): Page[] {
       return [];
   }
 }
+
+/** Pages that "Convert all" picks up: never converted, failed, or stopped. */
+const CONVERTIBLE: PageStatus[] = ['idle', 'error', 'cancelled'];
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -122,7 +128,8 @@ export default function App() {
             ...l,
             id: uid(),
             url: URL.createObjectURL(l.image),
-            status: 'queued',
+            // Nothing converts until the user asks (one page or all of them).
+            status: 'idle',
             source: '',
             figures: [],
           })),
@@ -148,28 +155,32 @@ export default function App() {
     return () => window.removeEventListener('paste', onPaste);
   }, [addFiles]);
 
-  /* ---------- conversion queue ---------- */
+  /* ---------- conversion queue ----------
+   * Only pages with status "queued" are converted, one at a time, in page order.
+   * Pages get queued by their own Convert button or by "Convert all".
+   */
 
   const processQueue = useCallback(async () => {
     if (runningRef.current) return;
+    if (!pagesRef.current.some((p) => p.status === 'queued')) return;
     const s = settingsRef.current;
     if (!s.model) {
+      dispatch({ type: 'setStatus', from: ['queued'], to: 'idle' });
       setStatus('Choose a model first.');
       return;
     }
     runningRef.current = true;
     setRunning(true);
     const thinking = modelsRef.current.find((m) => m.name === s.model)?.thinking ?? false;
-    const attempted = new Set<string>();
     try {
       for (;;) {
+        // pagesRef is current here: the previous page's status changed during the await below.
         const all = pagesRef.current;
-        const next = all.find((p) => p.status === 'queued' && !attempted.has(p.id));
+        const next = all.find((p) => p.status === 'queued');
         if (!next) break;
-        attempted.add(next.id);
         const n = all.indexOf(next) + 1;
-        const remaining = all.filter((p) => p.status === 'queued' && !attempted.has(p.id)).length;
-        setStatus(`Converting page ${n} of ${all.length}${remaining ? ` (${remaining} more queued)` : ''}…`);
+        const waiting = all.filter((p) => p.status === 'queued').length - 1;
+        setStatus(`Converting page ${n} of ${all.length}${waiting ? ` (${waiting} more waiting)` : ''}…`);
 
         const ac = new AbortController();
         abortRef.current = ac;
@@ -198,26 +209,40 @@ export default function App() {
       setRunning(false);
       setLive(null);
     }
-    if (pagesRef.current.length && !pagesRef.current.some((p) => p.status === 'queued')) {
-      setStatus((st) => (st === 'Stopped.' ? st : 'All pages converted. Review them, then download the HTML.'));
-    }
+    // A page may have been queued just as the loop finished; pick it up.
+    setTimeout(() => {
+      if (pagesRef.current.some((p) => p.status === 'queued')) void processQueue();
+    }, 0);
   }, []);
 
-  const convertAll = () => {
-    pagesRef.current
-      .filter((p) => p.status === 'error' || p.status === 'cancelled')
-      .forEach((p) => dispatch({ type: 'update', id: p.id, patch: { status: 'queued' } }));
-    // Let the dispatches land before the queue reads pagesRef.
-    setTimeout(processQueue, 0);
-  };
-
-  const rerun = useCallback(
+  /** Queue one page (it starts now, or after the page being converted). */
+  const convertOne = useCallback(
     (id: string) => {
       dispatch({ type: 'update', id, patch: { status: 'queued', error: undefined } });
+      // Let the dispatch land before the queue reads pagesRef.
       setTimeout(processQueue, 0);
     },
     [processQueue],
   );
+
+  /** Take a waiting page back out of the queue. */
+  const unqueue = useCallback((id: string) => {
+    const p = pagesRef.current.find((x) => x.id === id);
+    if (p?.status === 'queued') dispatch({ type: 'update', id, patch: { status: p.source ? 'done' : 'idle' } });
+  }, []);
+
+  const convertAll = () => {
+    dispatch({ type: 'setStatus', from: CONVERTIBLE, to: 'queued' });
+    setTimeout(processQueue, 0);
+  };
+
+  /** Stops the current page and empties the queue. */
+  const stop = () => {
+    abortRef.current?.abort();
+    pagesRef.current
+      .filter((p) => p.status === 'queued')
+      .forEach((p) => dispatch({ type: 'update', id: p.id, patch: { status: p.source ? 'done' : 'idle' } }));
+  };
 
   const onUpdate = useCallback((id: string, patch: Partial<Page>) => dispatch({ type: 'update', id, patch }), []);
   const onMove = useCallback((id: string, dir: -1 | 1) => dispatch({ type: 'move', id, dir }), []);
@@ -237,7 +262,8 @@ export default function App() {
   };
 
   const done = pages.filter((p) => p.status === 'done');
-  const pending = pages.filter((p) => p.status !== 'done').length;
+  const convertible = pages.filter((p) => CONVERTIBLE.includes(p.status)).length;
+  const notDone = pages.length - done.length;
   const missingAlt = done.reduce((n, p) => n + p.figures.filter((f) => !f.alt.trim()).length, 0);
   const useHeading = titleAuto || looksLikeFileName(title);
 
@@ -303,19 +329,21 @@ export default function App() {
           </div>
 
           <div className="toolbar">
-            {running ? (
-              <button type="button" className="danger" onClick={() => abortRef.current?.abort()}>
+            <button type="button" className="primary" onClick={convertAll} disabled={!convertible || !settings.model}>
+              Convert all{convertible ? ` (${convertible} page${convertible > 1 ? 's' : ''})` : ''}
+            </button>
+            {running && (
+              <button type="button" className="danger" onClick={stop}>
                 Stop
-              </button>
-            ) : (
-              <button type="button" className="primary" onClick={convertAll} disabled={!pending || !settings.model}>
-                Convert {pending ? `${pending} page${pending > 1 ? 's' : ''}` : ''}
               </button>
             )}
             <button type="button" onClick={clearAll} disabled={!pages.length || running}>
               Clear all
             </button>
           </div>
+          {pages.length > 1 && !running && convertible > 0 && (
+            <p className="hint">Or use the Convert button on a page to convert just that page.</p>
+          )}
 
           <p className="status" role="status" aria-live="polite">
             {loadingFiles || status}
@@ -334,9 +362,10 @@ export default function App() {
                 index={i}
                 count={pages.length}
                 liveText={live?.id === p.id ? live.text : null}
-                busy={running}
+                canConvert={!!settings.model}
                 onUpdate={onUpdate}
-                onRerun={rerun}
+                onConvert={convertOne}
+                onUnqueue={unqueue}
                 onRemove={onRemove}
                 onMove={onMove}
               />
@@ -377,7 +406,10 @@ export default function App() {
                 {missingAlt} figure{missingAlt > 1 ? 's are' : ' is'} missing alt text.
               </p>
             )}
-            {pending > 0 && <p className="hint">{pending} page(s) not converted yet will be left out.</p>}
+            <p className="hint">
+              Exports {done.length} converted page{done.length > 1 ? 's' : ''}
+              {notDone > 0 ? `; ${notDone} page${notDone > 1 ? 's' : ''} not converted will be left out` : ''}.
+            </p>
             <button type="button" className="primary" onClick={exportHtml}>
               Download HTML
             </button>

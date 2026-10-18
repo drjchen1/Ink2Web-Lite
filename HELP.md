@@ -1,6 +1,6 @@
 # Ink2Web Lite: User Guide
 
-This guide covers everyday use of Ink2Web Lite 1.4. For installation, see [README.md](README.md).
+This guide covers everyday use of Ink2Web Lite 1.5. For installation, see [README.md](README.md).
 
 > **Before you start:** Ink2Web Lite doesn't save your work between sessions. Refreshing or closing the browser tab clears all pages, so download the HTML before you leave.
 
@@ -26,9 +26,9 @@ This guide covers everyday use of Ink2Web Lite 1.4. For installation, see [READM
 1. Make sure **Ollama is running** (the llama icon is in your menu bar or system tray).
 2. Start the app with `npm run dev` and open **http://localhost:5173**.
 3. **Choose a model**, then **add your notes** (PDF or photos).
-4. Click **Convert** and wait for each page to finish.
-5. **Review each page**: check the text, math, and figures against the original.
-6. Click **Download HTML**.
+4. Click **Convert** on the pages you want, or **Convert all**.
+5. **Review each converted page**: check the text, math, and figures against the original.
+6. Click **Download HTML**. Only converted pages are included.
 
 A typical page takes from a few seconds to a minute, depending on your model and computer.
 
@@ -40,7 +40,29 @@ A typical page takes from a few seconds to a minute, depending on your model and
 
 The dropdown lists every model installed in Ollama, with vision-capable models first. Models marked **no vision** can't read images, so don't use them. If you've just installed a model, click **Refresh**.
 
-**Which model?** Start with a small one, like a 3B model, to make sure everything works. If it misreads your handwriting often, try a larger one, like a 7B model. Larger models are more accurate but slower and need more memory.
+**Which model?** Start with a small one, like a 3B model, to make sure everything works. If it misreads your handwriting often, try a larger one. Larger models are more accurate but slower and need more memory.
+
+Models that have worked well on an 8 GB Apple Silicon Mac:
+
+| Model | Install |
+|---|---|
+| Qwen2.5-VL 3B | `ollama pull qwen2.5vl:3b` |
+| Qwen3-VL 4B, instruct build | `ollama pull qwen3-vl:4b-instruct` |
+
+**Tip for comparing models:** convert one page with one model, switch models, then click **Convert again** on the same page. Only that page is converted, so you can compare quickly.
+
+### Use "instruct" models, not "thinking" ones
+
+Some model families come in two builds with the same size but different training:
+
+- **Thinking (reasoning) builds** write out hidden step-by-step "thinking" before they answer. For a page transcription, that thinking can be several times longer than the transcription itself, and the model has to generate every word of it. This makes conversion much slower. On a long page, the model can also use up its allowed output on thinking and return an empty or cut-off transcription.
+- **Instruct builds** are trained to answer directly. They write only the transcription, so they're much faster and more reliable for this job.
+
+For transcription, always choose the instruct build. Thinking helps with multi-step problem solving, not with copying text off a page.
+
+**For Qwen3-VL in particular**, the default tags (like `qwen3-vl:4b`) are thinking builds. Add `-instruct` to the tag: for example, `qwen3-vl:4b-instruct`. The same model that was slow or failed as `qwen3-vl:4b` can run fast and well as `qwen3-vl:4b-instruct`, even on an 8 GB Mac.
+
+The app tries to switch thinking off automatically. It does this only when Ollama reports that the model supports thinking, and that doesn't work for every model, so picking the instruct tag is the dependable fix. To check what an installed model is, run `ollama show <model>` and look for `thinking` under **Capabilities**.
 
 ### Image detail
 
@@ -63,9 +85,9 @@ When the model and the app's drawing detector disagree on how many figures a pag
 ### Advanced
 
 - **Ollama URL:** leave this as `/ollama` unless Ollama runs somewhere unusual.
-- **Context window (num_ctx):** leave it at 8192. Raise it only if long pages come back cut off.
+- **Context window (num_ctx):** leave it at 8192. On an 8 GB machine, lowering it to 4096 saves memory and is enough for most single pages. Raise it only if long pages come back cut off.
 
-Your settings are remembered the next time you open the app.
+Your settings are remembered the next time you open the app. Settings can't be changed while a page is converting.
 
 ---
 
@@ -74,7 +96,7 @@ Your settings are remembered the next time you open the app.
 - **Drag and drop** PDFs or images onto the **Notes** area, or click **Choose files**.
 - **Paste** a screenshot directly with ⌘V / Ctrl+V.
 - Supported formats: **PDF, PNG, JPEG, WebP, GIF, BMP**. iPhone HEIC photos must be converted to JPEG first.
-- Each PDF page becomes its own page in the app.
+- Each PDF page becomes its own page in the app, marked **Not converted**. Nothing is converted until you ask.
 - Use **↑ / ↓** on a page to reorder it, and **Remove** to delete it. **Clear all** starts over.
 
 **Check the page image on the left.** If it looks wrong (missing ink, sideways, very faint), the model will struggle too. Fix the scan first.
@@ -83,10 +105,35 @@ Your settings are remembered the next time you open the app.
 
 ## 4. Converting
 
-- **Convert** processes all waiting pages, one after another.
-- While a page converts, you see the model's output as it's written, then **Finding figures…** while the app locates and describes drawings.
-- **Stop** cancels the current page. Click **Convert** again to continue.
-- **Re-run** on a page converts it again from scratch, for example after switching to a better model. This replaces any edits you made on that page.
+### One page or all of them
+
+- **Convert** on a page converts **only that page**. This is the quickest way to handle a long PDF when you need just a few pages.
+- **Convert all** (at the top) converts every page that isn't done yet: pages not yet converted, and pages that failed or were stopped. Its label shows how many.
+
+Pages convert **one at a time**, in page order. This keeps memory use low on small machines.
+
+### While a page is converting
+
+- You see the model's output as it's written, then **Finding figures…** while the app locates and describes drawings.
+- You can click **Convert** on other pages. They're marked **Waiting** and start in turn.
+- **Cancel** on a waiting page takes it back out of the queue.
+- **Stop** (at the top) stops the current page and cancels all waiting pages. The stopped page is marked **Stopped**; convert it again whenever you like.
+- Settings are locked until conversion finishes.
+
+### Converting a page again
+
+When a page already has a transcription, its button reads **Convert again**. Use it after switching to a better model or changing settings. The app asks before converting, because it **replaces your edits on that page**, including alt text and figure layout.
+
+### Page status
+
+| Status | Meaning |
+|---|---|
+| **Not converted** | Added, not converted yet |
+| **Waiting** | In the queue; starts after the page being converted |
+| **Transcribing… / Finding figures…** | Being converted now |
+| **Done** | Converted; ready to review |
+| **Error** | Conversion failed; the message explains why. Click **Convert** to try again. |
+| **Stopped** | You stopped it; click **Convert** to try again |
 
 ---
 
@@ -108,13 +155,15 @@ Each page shows the **original** on the left and the result on the right.
 | A blank line | A new paragraph |
 | `- item` or `1. item` | Bulleted or numbered list |
 | `**bold**`, `*italic*` | **bold**, *italic* |
-| `$x^2$` | Math inside a sentence |
+| `$x^2$` | Math inside a sentence (no spaces just inside the `$`s) |
 | `$$\int_0^1 x\,dx$$` | An equation on its own line |
 | `$$\begin{aligned} a &= b \\ &= c \end{aligned}$$` | Several aligned equation lines |
 | `[[FIGURE 2]]` | Where figure 2 appears |
 | `\$` | A literal dollar sign |
 
 Keep ordinary sentences **outside** of `$…$`. Screen readers read anything inside as math.
+
+Inline math must not start or end with a space: write `$x^2$`, not `$ x^2 $`. This rule is what lets "$5 and $10" stay as text.
 
 ### Warnings
 
@@ -193,7 +242,7 @@ In the **Export** section at the bottom:
 - **Document title** becomes the page title and its main heading. While the title is still the file name (for example "Lesson20-1"), the **first heading in your notes** is used instead. Type your own title to override this.
 - **Mark page boundaries** adds small "Page 2", "Page 3" dividers between pages, which screen readers can use to navigate. Turn it off for one continuous document.
 - A warning shows how many figures are **missing alt text**.
-- Pages that haven't been converted are left out.
+- **Only converted pages are exported.** The Export section tells you how many pages will be included and how many are left out. To make a document from selected pages of a long PDF, just convert those pages.
 
 **Download HTML** saves one self-contained `.html` file with all figures embedded. You can:
 
@@ -227,15 +276,20 @@ The export already handles the rest: language, skip link, landmarks, heading ord
 |---|---|
 | **"Cannot reach Ollama"** | Open the Ollama app (or run `ollama serve`), then click **Refresh**. |
 | **No models in the list** | Install one: `ollama pull qwen2.5vl:3b`, then **Refresh**. |
+| **Convert buttons are greyed out** | Choose a model first. |
 | **"This model can't read images"** | Choose a vision model from the list. |
+| **A model is very slow, or returns empty or cut-off text** | It's probably a thinking build. Install the instruct build instead, e.g. `qwen3-vl:4b-instruct`. See [Use "instruct" models](#use-instruct-models-not-thinking-ones). |
+| **A model produces garbage** | Some small models (around 2B) are tuned for short questions and can't follow full-page instructions. Use a different model. |
+| **"A '$' delimiter is unmatched" but the math looks fine** | Look for spaces just inside `$…$`, like `$ x $`, and remove them. (1.5 fixes this automatically for new conversions.) |
 | **A PDF page shows only bits of the handwriting** | The app handles most scanner PDFs. If the page image still looks broken, re-scan or export it as an image and upload that instead. |
-| **Lots of misread words** | Try **High detail**, keep **Boost contrast** on, or use a larger model, then **Re-run**. |
-| **The output repeats itself or stops early** | The app trims repetition automatically. **Re-run** the page, or try another model. Raise the context window if long pages are cut off. |
+| **Lots of misread words** | Try **High detail**, keep **Boost contrast** on, or use a larger model, then **Convert again**. |
+| **The output repeats itself or stops early** | The app trims repetition automatically. **Convert again**, or try another model. Raise the context window if long pages are cut off. |
 | **A figure is missing** | Click **+ Add figure**. |
 | **Something that isn't a drawing became a figure** | **Delete** it in its figure card. |
 | **A figure's crop cuts off a label** | **Adjust crop** and drag the edge out, or try **Snap to ink**. |
 | **Text sits beside a figure that shouldn't** | Lower **Lines beside it**, or turn off **Put text beside the figure**. |
-| **Conversion is very slow** | Use **Fast** detail or a smaller model. Close other memory-heavy apps. The first page is slower while the model loads. |
+| **Conversion is very slow** | Make sure you're using an instruct build. Then try **Fast** detail, a smaller model, or a context window of 4096. Close other memory-heavy apps. The first page is slower while the model loads. |
+| **A page is missing from the export** | Only converted pages are exported. Click **Convert** on it. |
 | **Math shows as raw `\(…\)` in the exported file** | The viewer is offline; MathJax needs the internet to load. |
 
 ---
@@ -251,8 +305,14 @@ Not in this version. Pages live only in the open browser tab, so finish and down
 **Will it fix mistakes in my notes?**
 No, on purpose. It transcribes exactly what's written, so you control every change.
 
+**Can I convert just a few pages of a long PDF?**
+Yes. Click **Convert** on each page you want. Only converted pages go into the export.
+
 **Can I convert many pages at once?**
-Yes. Add them all and click **Convert**; they're processed one after another. A multi-page PDF exports as one document.
+Yes. Click **Convert all**. Pages are processed one after another, and a multi-page PDF exports as one document.
+
+**Why is the "-instruct" version of a model so much faster?**
+The default build of some models "thinks" out loud, privately, before answering, and that thinking can be several times longer than the transcription. The instruct build skips it and writes the transcription directly. Both are the same size, but the instruct build does far less work per page. See [Use "instruct" models](#use-instruct-models-not-thinking-ones).
 
 **Why does it use both a model and a "detector" for figures?**
 Small vision models often forget to mention a drawing or misjudge where it is. The detector finds drawings directly from the ink in a fraction of a second, and the model describes them. Each covers the other's weak spot.

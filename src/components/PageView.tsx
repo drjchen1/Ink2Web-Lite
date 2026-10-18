@@ -14,14 +14,19 @@ interface Props {
   index: number;
   count: number;
   liveText: string | null;
-  busy: boolean;
+  /** A model is selected. */
+  canConvert: boolean;
   onUpdate: (id: string, patch: Partial<Page>) => void;
-  onRerun: (id: string) => void;
+  /** Converts this page only (now, or after the page being converted). */
+  onConvert: (id: string) => void;
+  /** Takes this page back out of the queue. */
+  onUnqueue: (id: string) => void;
   onRemove: (id: string) => void;
   onMove: (id: string, dir: -1 | 1) => void;
 }
 
 const STATUS: Record<Page['status'], string> = {
+  idle: 'Not converted',
   queued: 'Waiting',
   transcribing: 'Transcribing…',
   locating: 'Finding figures…',
@@ -46,12 +51,13 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export const PageView = memo(function PageView(props: Props) {
-  const { page, index, count, liveText, busy, onUpdate, onRerun, onRemove, onMove } = props;
+  const { page, index, count, liveText, canConvert, onUpdate, onConvert, onUnqueue, onRemove, onMove } = props;
   const [tab, setTab] = useState<'preview' | 'edit'>('preview');
   const [active, setActive] = useState<number | null>(null);
   const [note, setNote] = useState('');
   const headingId = `page-${page.id}-h`;
   const working = page.status === 'transcribing' || page.status === 'locating';
+  const hasResult = !!page.source || page.figures.length > 0;
 
   // Keep the latest page in a ref so async updates never clobber newer edits.
   const latest = useRef(page);
@@ -62,6 +68,11 @@ export const PageView = memo(function PageView(props: Props) {
   const warnings = useMemo(() => latexWarnings(source), [source]);
   const positions = useMemo(() => markerUnitIndex(page.source), [page.source]);
   const unitCount = useMemo(() => sourceUnits(page.source).length, [page.source]);
+
+  const convert = () => {
+    if (hasResult && !window.confirm(`Convert page ${index + 1} again? This replaces your edits on this page.`)) return;
+    onConvert(page.id);
+  };
 
   const patchFigure = (id: number, patch: Partial<Figure>) =>
     onUpdate(page.id, { figures: latest.current.figures.map((f) => (f.id === id ? { ...f, ...patch } : f)) });
@@ -118,13 +129,31 @@ export const PageView = memo(function PageView(props: Props) {
     setNote(`Figure ${id} moved ${dir < 0 ? 'up' : 'down'} in the text.`);
   };
 
+  /** The page's main action: Convert / Convert again / Cancel (when waiting). */
+  const action =
+    page.status === 'queued' ? (
+      <button type="button" onClick={() => onUnqueue(page.id)} aria-label={`Cancel converting page ${index + 1}`}>
+        Cancel
+      </button>
+    ) : (
+      <button
+        type="button"
+        className={page.status === 'idle' ? 'primary' : undefined}
+        onClick={convert}
+        disabled={working || !canConvert}
+        aria-label={`${hasResult ? 'Convert again' : 'Convert'}: page ${index + 1}`}
+      >
+        {hasResult ? 'Convert again' : 'Convert'}
+      </button>
+    );
+
   return (
     <article className="page" aria-labelledby={headingId}>
       <header className="page-head">
         <h3 id={headingId}>
           {index + 1}. {page.label}
         </h3>
-        <span className={`badge ${page.status}`}>{STATUS[page.status]}</span>
+        <span className={`badge ${page.status === 'idle' ? 'queued' : page.status}`}>{STATUS[page.status]}</span>
         <div className="actions">
           <button type="button" onClick={() => onMove(page.id, -1)} disabled={index === 0} aria-label={`Move page ${index + 1} up`}>
             ↑
@@ -132,9 +161,7 @@ export const PageView = memo(function PageView(props: Props) {
           <button type="button" onClick={() => onMove(page.id, 1)} disabled={index === count - 1} aria-label={`Move page ${index + 1} down`}>
             ↓
           </button>
-          <button type="button" onClick={() => onRerun(page.id)} disabled={working || busy}>
-            {page.status === 'queued' ? 'Convert' : 'Re-run'}
-          </button>
+          {action}
           <button type="button" onClick={() => onRemove(page.id)} disabled={working}>
             Remove
           </button>
@@ -168,8 +195,14 @@ export const PageView = memo(function PageView(props: Props) {
               <p className="hint">{page.status === 'locating' ? 'Finding and describing figures…' : 'Model output (live):'}</p>
               <pre className="live">{liveText || '…'}</pre>
             </div>
-          ) : page.status === 'queued' && !page.source ? (
-            <p className="hint">Not converted yet.</p>
+          ) : !hasResult ? (
+            <p className="hint">
+              {page.status === 'queued'
+                ? 'Waiting for its turn. It will start after the page being converted.'
+                : canConvert
+                  ? 'Not converted yet. Click Convert to convert just this page.'
+                  : 'Not converted yet. Choose a model first.'}
+            </p>
           ) : (
             <>
               <div className="seg" role="group" aria-label="View">
@@ -205,7 +238,7 @@ export const PageView = memo(function PageView(props: Props) {
             </>
           )}
 
-          {!working && (page.source || page.figures.length > 0) && (
+          {!working && hasResult && (
             <section className="figures" aria-label={`Figures on page ${index + 1}`}>
               <h4>Figures</h4>
               <p className="sr-only" role="status" aria-live="polite">

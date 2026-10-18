@@ -32,7 +32,13 @@ export interface Figure {
   besideLines: number;
 }
 
-export type PageStatus = 'queued' | 'transcribing' | 'locating' | 'done' | 'error' | 'cancelled';
+/**
+ * idle        - added but not converted (nothing runs until the user asks)
+ * queued      - waiting its turn in the conversion queue
+ * transcribing / locating - being converted now
+ * done / error / cancelled - finished, failed, or stopped
+ */
+export type PageStatus = 'idle' | 'queued' | 'transcribing' | 'locating' | 'done' | 'error' | 'cancelled';
 
 export interface Page {
   id: string;

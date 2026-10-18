@@ -8,7 +8,16 @@ Everything runs on your own computer. The app uses a vision model running locall
 - ⚡ **No API keys or subscriptions** are needed.
 - 💻 **It runs on everyday hardware**, including Apple Silicon laptops with 8 GB of RAM (with a small model).
 
-Version 1.4. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 1.5. For step-by-step usage, see **[HELP.md](HELP.md)**.
+
+---
+
+## What's new in 1.5
+
+- **Convert only the pages you want.** New pages wait until you ask. A page's **Convert** button converts just that page. **Convert all** converts every page that isn't done yet.
+- **Queue pages while one is converting.** Click **Convert** on another page and it waits its turn. **Cancel** takes it back out of the queue, and **Stop** stops the current page and empties the queue.
+- **Convert again asks first** when the page already has a transcription, because converting replaces your edits on that page.
+- **Fix for models that write `\( x \)` with spaces** (e.g. ministral). Their inline math now renders, with no stray-`$` warning.
 
 ---
 
@@ -64,13 +73,16 @@ node -v && ollama --version
 
 ### Install a vision model
 
-Any Ollama model that can read images works. The app doesn't require a specific one. Some examples:
+Any Ollama model that can read images works. The app doesn't require a specific one. Two that work well on an 8 GB Mac:
 
 ```bash
-ollama pull qwen2.5vl:3b            # small and fast; fine on 8 GB machines
-ollama pull qwen3-vl:4b-instruct    # newer; also runs on 8 GB machines (use the -instruct tag)
+ollama pull qwen2.5vl:3b            # small and fast
+ollama pull qwen3-vl:4b-instruct    # newer; use the -instruct tag
 ```
-Other vision models might also work. Larger models are more accurate but slower. You can switch models at any time in the app.
+
+**Use instruct builds, not thinking builds.** For Qwen3-VL, the default tags (like `qwen3-vl:4b`) are "thinking" builds. They're much slower for transcription and may return empty pages. HELP.md explains why.
+
+Larger models are more accurate on messy handwriting but slower and need more memory. You can switch models at any time in the app.
 
 ---
 
@@ -101,9 +113,9 @@ Replace the project files (keep or delete `node_modules`), then run `npm install
 
 1. Choose a model.
 2. Drop in a PDF or photos.
-3. Click **Convert**.
+3. Click **Convert** on the pages you want, or **Convert all**.
 4. Review each page: compare the preview with the original, fix any text or LaTeX, and check the figures and their alt text.
-5. Click **Download HTML**.
+5. Click **Download HTML**. Only converted pages are exported.
 
 The full guide is in **[HELP.md](HELP.md)**.
 
@@ -128,7 +140,8 @@ A few design choices matter for accuracy:
 - **The model only writes Markdown and LaTeX**, which small vision models do reliably. The app's own code builds all the HTML and accessibility markup, so every export has the same structure.
 - **Figures are found from the ink itself**, not only from the model, because small models often forget to mention a drawing. Sizes are measured against the author's own letter height, which makes detection work for large or small writing and for portrait or landscape pages.
 - **Figures are placed by where they sit on the page**, and text written beside a drawing stays beside it in the export.
-- **Model output is cleaned up**: code fences, repeated text, and sentences wrapped in math blocks are fixed, so screen readers read prose as prose.
+- **Model output is cleaned up**: code fences, repeated text, spaced math delimiters, and sentences wrapped in math blocks are fixed, so screen readers read prose as prose.
+- **Pages convert one at a time, only when asked**, which keeps memory use low on small machines.
 
 ---
 
