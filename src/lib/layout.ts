@@ -173,7 +173,7 @@ export function analyzeLayout(map: InkMap): Layout {
   const used = new Set<number>();
   const figs: Comp[] = [];
   comps.forEach((c, i) => {
-    if (cw(c) < unit * 2) return; // a lone vertical stroke is not a drawing
+    if (cw(c) < unit * 1.5) return; // a lone vertical stroke (a bracket, an integral sign) is not a drawing
     const big = ch(c) >= unit * 5;
     const narrow = ch(c) >= unit * 3 && ch(c) > cw(c) && groupWidth(i) <= cw(c) * 3;
     if (big || narrow) {

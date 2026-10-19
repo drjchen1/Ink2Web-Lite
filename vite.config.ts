@@ -21,13 +21,15 @@ const ollamaProxy: Record<string, ProxyOptions> = {
   },
 };
 
+const requireFrom = createRequire(import.meta.url);
+
 /**
  * Serves pdf.js's wasm decoders and ICC profiles at /pdfjs/{wasm,iccs}/ in dev,
  * and copies them into dist/ on build (pdf.js fetches them by exact file name,
  * so they must not be hashed).
  */
 function pdfjsAssets(): Plugin {
-  const root = path.dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+  const root = path.dirname(requireFrom.resolve('pdfjs-dist/package.json'));
   const dirs = ['wasm', 'iccs'];
   return {
     name: 'pdfjs-assets',
@@ -54,8 +56,27 @@ function pdfjsAssets(): Plugin {
   };
 }
 
+/**
+ * The preview's MathJax loads the mathtools extension from next to its own script.
+ * In a build that script lives in assets/, so copy the extension there (dev serves
+ * it straight from node_modules).
+ */
+function mathjaxExtensions(): Plugin {
+  const es5 = path.join(path.dirname(requireFrom.resolve('mathjax/package.json')), 'es5');
+  const files = ['input/tex/extensions/mathtools.js'];
+  return {
+    name: 'mathjax-extensions',
+    generateBundle() {
+      for (const f of files) {
+        const src = path.join(es5, f);
+        if (fs.existsSync(src)) this.emitFile({ type: 'asset', fileName: `assets/${f}`, source: fs.readFileSync(src) });
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), pdfjsAssets()],
+  plugins: [react(), pdfjsAssets(), mathjaxExtensions()],
   server: { port: 5173, proxy: ollamaProxy },
   preview: { port: 4173, proxy: ollamaProxy },
 });

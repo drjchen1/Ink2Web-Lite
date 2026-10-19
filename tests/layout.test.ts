@@ -19,8 +19,8 @@ ink(180, 70, 215, 73);
 for (let k = 0; k < 10; k++) ink(k % 2 ? 192 : 200, 73 + k * 7, (k % 2 ? 192 : 200) + 8, 80 + k * 7);
 ink(240, 72, 242, 85); ink(238, 92, 244, 104); ink(240, 110, 242, 140);      // ↑ ℓ ↓ column
 words(95, 330, 700);                                              // text beside the spring
-// Integral with limits next to its integrand (as tall as the spring, but part of a row).
-ink(110, 188, 116, 226); ink(118, 184, 124, 191); ink(104, 224, 110, 231); // ~4 letters tall, like real ones
+// Integral with limits next to its integrand (~4 letters tall, like real ones; part of a row).
+ink(110, 188, 116, 226); ink(118, 184, 124, 191); ink(104, 224, 110, 231);
 words(200, 128, 420);
 // Graph: axes + curve, label inside, formula beside it.
 ink(160, 300, 163, 480); ink(160, 477, 420, 480);
@@ -67,7 +67,6 @@ const figs = [
   { id: 3, box: { x: 0.191, y: 0.447, w: 0.142, h: 0.170 } },
   { id: 4, box: { x: 0.187, y: 0.733, w: 0.258, h: 0.160 } },
 ];
-// The model's one marker was at the end and its description matched nothing for sure: drop it.
 const placed = renumber(placeByPosition(removeMarkers(lesson, [1]), figs, [], lines)).source;
 assert.equal(
   placed,
@@ -86,7 +85,6 @@ assert.equal(
     "why? let's model and explain with diff. eqs.",
   ].join('\n'),
 );
-// Lines beside each figure, in transcription lines (the model merged two handwritten lines for figure 3).
 assert.deepEqual(figs.map((f, i) => besideUnitCount(placed, { id: i + 1, box: f.box }, lines)), [1, 2, 1]);
 
 /* ---- moving markers ---- */

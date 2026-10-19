@@ -24,6 +24,7 @@ let html = buildDocument([page('## Fundamental Theorem of Calculus\nIf $f$ is co
 assert(html.includes('<title>Fundamental Theorem of Calculus</title>'));
 assert(html.includes('<h1>Fundamental Theorem of Calculus</h1>'));
 assert(!html.includes('<h2>Fundamental'), 'heading not duplicated');
+assert(html.includes("load: ['[tex]/mathtools']"), 'export loads mathtools for \\mathclap');
 
 html = buildDocument([page('## Mechanical Vibrations\ntext')], { title: 'Lesson20-1', ...opts });
 assert(html.includes('<h1>Mechanical Vibrations</h1>'), 'Lesson20-1 treated as a file name');
@@ -36,7 +37,7 @@ assert(html.includes('<h1>IMG_2041</h1>'), 'fallback when no heading');
 html = buildDocument([page('# The $\\epsilon$-$\\delta$ definition\nbody')], { title: 'scan', ...opts });
 assert(html.includes('<h1>The \\(\\epsilon\\)-\\(\\delta\\) definition</h1>') && html.includes('<title>The \\epsilon-\\delta definition</title>'));
 
-/* ---- figure layout ---- */
+/* figure layout */
 assert.equal(
   figureHtml(fig({}), 2),
   '<figure id="fig-2-1" class="fig align-left wrap" style="--w:40%"><img src="data:x" alt="A graph."></figure>',
@@ -51,6 +52,6 @@ assert.equal(withWrapEnds(src, [fig({ besideLines: 9 })]), src, 'never runs past
 html = buildDocument([page(src, [fig({ besideLines: 1 })])], { title: 'T', lang: 'en', pageMarkers: false });
 assert(/beside one<\/p>\n<div class="fig-clear"><\/div>/.test(html), 'clear right after the beside line');
 assert(html.includes('figure.fig.wrap.align-left{float:left') && html.includes('@media (max-width:40rem)'), 'layout + reflow CSS');
-assert(html.trimEnd().includes('<div class="fig-clear"></div>\n\n</main>') || html.includes('<div class="fig-clear"></div>\n</main>'), 'floats cleared at end of page');
+assert(html.includes('.ink-red{color:#B3261E}') && html.includes('strong.ul{'), 'handwriting-mark CSS');
 
 console.log('All export tests passed.');

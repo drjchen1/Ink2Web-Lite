@@ -57,18 +57,27 @@ export interface Page {
   error?: string;
 }
 
+/**
+ * How arrow and brace notes on equations are written.
+ * notes - the equation stays clean and a sentence follows: "where ω is the frequency"
+ * drawn - arrows and braces are drawn in the equation (\underset, \underbrace)
+ */
+export type AnnotationStyle = 'notes' | 'drawn';
+
 export interface Settings {
   /** Ollama base URL. "/ollama" uses the Vite proxy. */
   baseUrl: string;
   model: string;
   /** Long side (px) of the image sent to the model. */
   detail: number;
-  /** Grayscale + contrast stretch before sending to the model. */
+  /** Contrast stretch (colors kept) before sending to the model. */
   enhance: boolean;
   /** Ask the model for figure positions when its figure list disagrees with the ink detector. */
   locateFigures: boolean;
   /** Context window passed to Ollama (must hold image tokens + output). */
   numCtx: number;
+  /** Arrow and brace notes (missing in settings saved by older versions = 'notes'). */
+  annotations?: AnnotationStyle;
 }
 
 export interface ModelInfo {

@@ -1,9 +1,13 @@
-import type { Box } from '../types.ts';
+import type { AnnotationStyle, Box } from '../types.ts';
 
 /** Pure helpers for cleaning model output and editing the page source. No DOM access. */
 
-/** Removes wrappers small models like to add (code fences, think blocks, chatter). */
-export function cleanModelOutput(raw: string): string {
+/**
+ * Removes wrappers small models like to add (code fences, think blocks, chatter) and
+ * repairs common slips. With the "notes" annotation style, arrows and braces the model
+ * still drew inside an equation are moved out into [[note: term | words]] lines.
+ */
+export function cleanModelOutput(raw: string, style: AnnotationStyle = 'notes'): string {
   let t = raw.replace(/\r\n?/g, '\n');
   t = t.replace(/<think>[\s\S]*?<\/think>/gi, '');
   // Drop a leading "Here is the transcription:"-style line.
@@ -16,19 +20,236 @@ export function cleanModelOutput(raw: string): string {
   // (an opening $ followed by a space is text, so "$5 and $10" stays text).
   t = t.replace(/(?<!\\)\\\[([\s\S]*?)(?<!\\)\\\]/g, (_, m: string) => `$$${m.trim()}$$`);
   t = t.replace(/(?<!\\)\\\(([\s\S]*?)(?<!\\)\\\)/g, (_, m: string) => `$${m.trim()}$`);
+  t = normalizeColorMarkup(t);
   t = unwrapTextMath(t);
+  t = mergeArrowNotes(t);
+  t = promoteEquationLines(t);
+  if (style === 'notes') t = annotationsToNotes(t);
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 
-/** Reads a balanced {...} group starting at `open` (the index of "{"). */
-function braced(s: string, open: number): { body: string; end: number } | null {
+const COLOR_NAMES = 'red|green|orange|purple|blue';
+
+/* ------------------------------------------------------------------------------------
+ * Arrow and brace notes
+ * ---------------------------------------------------------------------------------- */
+
+/** Index just past the balanced {...} group that opens at `open` (or -1). */
+function groupEnd(s: string, open: number): number {
   let depth = 0;
   for (let i = open; i < s.length; i++) {
     if (s[i] === '\\') i++;
     else if (s[i] === '{') depth++;
-    else if (s[i] === '}' && --depth === 0) return { body: s.slice(open + 1, i), end: i + 1 };
+    else if (s[i] === '}' && --depth === 0) return i + 1;
   }
-  return null;
+  return -1;
+}
+
+/** Plain content of an annotation label: arrows, \substack, \text and line breaks removed. */
+export function cleanLabel(label: string): string {
+  let t = label;
+  for (let i = 0; i < 3; i++) t = t.replace(/\\(?:substack|mathclap|text|textrm|mbox|mathrm|scriptsize)\s*\{([^{}]*)\}/g, '$1');
+  return t
+    .replace(/\\(?:uparrow|downarrow|leftarrow|rightarrow|nearrow|nwarrow|searrow|swarrow|Uparrow|Downarrow)\b/g, ' ')
+    .replace(/[↑↓←→↖↗↘↙]/g, ' ')
+    .replace(/\\\\/g, ' ')
+    .replace(/^\s*\{|\}\s*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export interface Annotation {
+  target: string;
+  label: string;
+}
+
+/**
+ * Removes \underset, \overset, \underbrace and \overbrace from a LaTeX expression,
+ * keeping the annotated term, and returns the notes that were attached.
+ */
+export function extractAnnotations(tex: string): { tex: string; notes: Annotation[] } {
+  const notes: Annotation[] = [];
+  let s = tex;
+  const cmd = /\\(underset|overset|stackrel|underbrace|overbrace)\s*\{/;
+  for (let guard = 0; guard < 50; guard++) {
+    const m = cmd.exec(s);
+    if (!m) break;
+    const open1 = m.index + m[0].length - 1;
+    const end1 = groupEnd(s, open1);
+    if (end1 < 0) break;
+    const first = s.slice(open1 + 1, end1 - 1);
+    let target: string;
+    let label = '';
+    let end = end1;
+    if (m[1] === 'underbrace' || m[1] === 'overbrace') {
+      target = first;
+      const after = s.slice(end1).match(/^\s*[_^]\s*\{/);
+      if (after) {
+        const open2 = end1 + after[0].length - 1;
+        const end2 = groupEnd(s, open2);
+        if (end2 > 0) {
+          label = s.slice(open2 + 1, end2 - 1);
+          end = end2;
+        }
+      }
+    } else {
+      // \underset{LABEL}{term}, \overset{LABEL}{term}, \stackrel{LABEL}{term}
+      const after = s.slice(end1).match(/^\s*\{/);
+      if (!after) break;
+      const open2 = end1 + after[0].length - 1;
+      const end2 = groupEnd(s, open2);
+      if (end2 < 0) break;
+      label = first;
+      target = s.slice(open2 + 1, end2 - 1);
+      end = end2;
+    }
+    const clean = cleanLabel(label);
+    if (clean) notes.push({ target: target.trim(), label: clean });
+    s = s.slice(0, m.index) + target + s.slice(end);
+  }
+  return { tex: s, notes };
+}
+
+const noteLine = (n: Annotation) => `[[note: ${n.target} | ${n.label}]]`;
+
+/**
+ * "Notes" style: arrows and braces drawn inside math are taken out of the equation
+ * and listed as [[note: term | words]] lines right after the line that held them.
+ */
+export function annotationsToNotes(md: string): string {
+  // Display math first (may span lines); notes go right after the closing $$.
+  let t = md.replace(/\$\$([\s\S]+?)\$\$/g, (whole, inner: string) => {
+    const { tex, notes } = extractAnnotations(inner);
+    if (!notes.length && tex === inner) return whole;
+    return `$$${tex}$$${notes.length ? `\n${notes.map(noteLine).join('\n')}` : ''}`;
+  });
+  // Inline math: notes after the line.
+  t = t
+    .split('\n')
+    .map((line) => {
+      if (/^\s*\[\[\s*note/i.test(line)) return line;
+      const notes: Annotation[] = [];
+      const out = line.replace(/(?<!\$)\$(?!\$)([^$\n]+?)(?<!\$)\$(?!\$)/g, (whole, inner: string) => {
+        const r = extractAnnotations(inner);
+        notes.push(...r.notes);
+        return r.tex === inner ? whole : `$${r.tex.trim()}$`;
+      });
+      return notes.length ? `${out}\n${notes.map(noteLine).join('\n')}` : out;
+    })
+    .join('\n');
+  return t;
+}
+
+/**
+ * Models sometimes write colored text as HTML instead of the [[red: ...]] form the
+ * prompt asks for. Convert the common shapes so they still render (and escape safely).
+ */
+export function normalizeColorMarkup(md: string): string {
+  return md
+    .replace(
+      new RegExp(`<span\\s+style\\s*=\\s*["']\\s*color\\s*:\\s*(${COLOR_NAMES})\\s*;?\\s*["']\\s*>([\\s\\S]*?)<\\/span>`, 'gi'),
+      (_, c: string, body: string) => `[[${c.toLowerCase()}: ${body.trim()}]]`,
+    )
+    .replace(
+      new RegExp(`<font\\s+color\\s*=\\s*["']?(${COLOR_NAMES})["']?\\s*>([\\s\\S]*?)<\\/font>`, 'gi'),
+      (_, c: string, body: string) => `[[${c.toLowerCase()}: ${body.trim()}]]`,
+    );
+}
+
+const ARROWS = '↑↓←→↖↗↘↙⟵⟶';
+const ARROW_LINE = new RegExp(`^\\s*[${ARROWS}]\\s*(.*)$`);
+
+/**
+ * Small models often copy an arrow note the way it looks on the page: the arrow on
+ * one line and the note, word by word, on the next lines ("↑" / "new" / "amplitude").
+ * That reads as nonsense, and a line like "- sin(δ)" even becomes a bullet point.
+ * This joins each run of arrow lines and their short note lines into one note line,
+ * shown in the note style: [[note: ↑ new amplitude · ← phase shift]].
+ */
+export function mergeArrowNotes(md: string): string {
+  const lines = md.split('\n');
+  const out: string[] = [];
+  const short = (l: string) => {
+    const t = l.trim();
+    return t.length > 0 && t.length <= 24 && !t.includes('=') && !t.includes('$$') && t.split(/\s+/).length <= 2 && !/^#|^\[\[/.test(t);
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(ARROW_LINE);
+    if (!m) {
+      out.push(lines[i]);
+      continue;
+    }
+    const segments: string[] = [];
+    let seg = `${lines[i].trim().charAt(0)} ${m[1].trim()}`.trim();
+    while (i + 1 < lines.length) {
+      const next = lines[i + 1];
+      const arrow = next.match(ARROW_LINE);
+      if (arrow) {
+        segments.push(seg);
+        seg = `${next.trim().charAt(0)} ${arrow[1].trim()}`.trim();
+        i++;
+      } else if (short(next)) {
+        seg += ` ${next.trim()}`;
+        i++;
+      } else break;
+    }
+    segments.push(seg);
+    out.push(`[[note: ${segments.join(' · ')}]]`);
+  }
+  return out.join('\n');
+}
+
+const GREEK_MAP: Record<string, string> = {
+  α: '\\alpha', β: '\\beta', γ: '\\gamma', δ: '\\delta', ε: '\\varepsilon', θ: '\\theta', λ: '\\lambda',
+  μ: '\\mu', π: '\\pi', ρ: '\\rho', σ: '\\sigma', τ: '\\tau', φ: '\\phi', ω: '\\omega', Δ: '\\Delta', Ω: '\\Omega',
+};
+const FUNCS = 'sin|cos|tan|sec|csc|cot|ln|log|exp';
+const FUNC_WORDS = new Set(FUNCS.split('|').concat(['tan^{-1}']));
+
+/** Converts a plain-text equation ("u(t) = Rcos(7t - δ)") to LaTeX. */
+export function plainToTex(line: string): string {
+  let t = line.replace(/\$+/g, '');
+  t = t.replace(/[αβγδεθλμπρσφωΔΩτ]/g, (g) => `${GREEK_MAP[g]} `);
+  t = t.replace(new RegExp(`(?<!\\\\)(${FUNCS})(?=\\s*[(\\\\{^])`, 'g'), '\\$1');
+  t = t.replace(/·|×/g, '\\cdot ').replace(/≤/g, '\\le ').replace(/≥/g, '\\ge ').replace(/≠/g, '\\ne ').replace(/→/g, '\\to ');
+  t = t.replace(/\s{3,}/g, ' \\qquad ');
+  return t.replace(/\s+/g, ' ').replace(/ \)/g, ')').trim();
+}
+
+/**
+ * Lines that are clearly a standalone equation (they contain "=" and no words other
+ * than function names) but were written without $$...$$ are turned into display math,
+ * so they render as math and screen readers read them as math. Lines that mix words
+ * and math are left as written.
+ */
+export function promoteEquationLines(md: string): string {
+  let inDisplay = false;
+  return md
+    .split('\n')
+    .map((line) => {
+      const dd = (line.match(/\$\$/g) ?? []).length;
+      if (inDisplay || dd) {
+        if (dd % 2 === 1) inDisplay = !inDisplay;
+        return line;
+      }
+      const t = line.trim();
+      if (!t.includes('=') || /^(#|- |\d+[.)] |>|\||\[\[)/.test(t) || /\\begin|<u>/.test(t)) return line;
+      // Words, ignoring math inside $...$, LaTeX commands and function names.
+      const outside = t
+        .replace(/\$[^$]*\$/g, ' ')
+        .replace(/\\[a-zA-Z]+/g, ' ')
+        .replace(new RegExp(`(${FUNCS})(?=\\s*[(^])`, 'g'), ' ');
+      const words = (outside.match(/[A-Za-z]{2,}/g) ?? []).filter((w) => !FUNC_WORDS.has(w.toLowerCase()));
+      if (words.length) return line;
+      return `$$${plainToTex(t)}$$`;
+    })
+    .join('\n');
+}
+
+/** Reads a balanced {...} group starting at `open` (the index of "{"). */
+function braced(s: string, open: number): { body: string; end: number } | null {
+  const end = groupEnd(s, open);
+  return end < 0 ? null : { body: s.slice(open + 1, end - 1), end };
 }
 
 /**
@@ -66,14 +287,20 @@ function textRow(row: string): string | null {
 }
 
 /**
+ * Annotation commands: \text inside these is a label on the math (a brace note, an
+ * arrow note), not prose, so blocks containing them are never unwrapped.
+ */
+const ANNOTATION = /\\(?:underbrace|overbrace|underset|overset|stackrel|boxed|substack|xrightarrow|xleftarrow)\b/;
+
+/**
  * Small models sometimes wrap ordinary sentences in display math
  * ($$\begin{aligned}&\text{...}\\&\text{...}\end{aligned}$$ or $\text{...}$).
  * Screen readers then read prose as math. This puts the sentences back as text
- * lines; blocks that contain real equations are left alone.
+ * lines; blocks that contain real equations or annotations are left alone.
  */
 export function unwrapTextMath(md: string): string {
   let t = md.replace(/\$\$([\s\S]+?)\$\$/g, (whole, inner: string) => {
-    if (!/\\(?:text|textrm|mbox)\s*\{/.test(inner)) return whole;
+    if (!/\\(?:text|textrm|mbox)\s*\{/.test(inner) || ANNOTATION.test(inner)) return whole;
     const body = inner
       .replace(/\\begin\{(aligned|align\*?|gathered|gather\*?|array)\}(\{[^}]*\})?/g, '')
       .replace(/\\end\{(aligned|align\*?|gathered|gather\*?|array)\}/g, '');

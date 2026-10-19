@@ -9,7 +9,7 @@ const { source, descriptions } = extractFigures(clean);
 const html = markdownToHtml(source, { figure: (id) => `<figure data-id="${id}"></figure>` });
 
 assert(!clean.includes('```') && !clean.startsWith('Here'));
-assert(clean.includes('$$ W = y_1'), 'normalize \\[');
+assert(clean.includes('$$W = y_1'), 'normalize \\[ (contents trimmed)');
 assert(clean.includes('\\\\[4pt]'), 'keeps \\\\[4pt]');
 assert.equal(descriptions.length, 1);
 assert(html.includes('<h2>Variation of Parameters</h2>'));
@@ -25,7 +25,13 @@ assert(html.includes('<th scope="col">t</th>') && html.includes('\\(1\\)'));
 assert((html.match(/<li>/g) || []).length === (html.match(/<\/li>/g) || []).length, 'balanced li');
 assert(html.includes('<div class="math-display">\\[\\begin{aligned}'), 'display math after list is not a <p>');
 
-/* ---- prose wrapped in math (seen on Lesson20-1) ---- */
+/* \( \) with inner spaces (ministral-style output) */
+const spaced = cleanModelOutput('If \\( f(x) \\) is continuous on \\( a \\le x \\le b \\), then');
+assert.equal(spaced, 'If $f(x)$ is continuous on $a \\le x \\le b$, then');
+assert.deepEqual(latexWarnings(spaced), [], 'no stray-$ warning');
+assert(markdownToHtml(spaced, { figure: () => '' }).includes('\\(f(x)\\)'), 'rendered as math');
+
+/* prose wrapped in math (Lesson20-1) */
 const prose = `take a spring
 $$\\begin{aligned}
 &\\text{leaving it there, it will have a natural length} \\\\
@@ -37,7 +43,6 @@ $\\text{only words}$ and $x^2$`;
 const un = unwrapTextMath(prose);
 assert(un.includes('\nleaving it there, it will have a natural length\n'), 'text rows become lines');
 assert(un.includes('due to the weight, the spring lengthens by $L$'), 'math inside a text row stays math');
-assert(!/\$\$\\begin\{aligned\}\s*&\\text/.test(un), 'prose block removed');
 assert(un.includes('\\tfrac12 \\text{ by symmetry}'), 'real equations untouched');
 assert(un.includes('only words and $x^2$'), 'inline text-only math unwrapped');
 

@@ -111,16 +111,15 @@ function bitmap(blob: Blob): Promise<ImageBitmap> {
 
 const base64Of = (c: HTMLCanvasElement, type: string, q?: number) => c.toDataURL(type, q).split(',')[1];
 
-/** Grayscale + percentile contrast stretch. Helps faint pencil and phone photos. */
-function enhance(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
+/**
+ * Contrast stretch that keeps ink colors. The stretch is computed on brightness
+ * (paper becomes white, ink darker) and the same mapping is applied to each color
+ * channel, so red or green comments stay recognizably red or green for the model.
+ * Helps faint pencil and phone photos.
+ */
+export function enhancePixels(d: Uint8ClampedArray, w: number, h: number) {
   const hist = new Uint32Array(256);
-  for (let i = 0; i < d.length; i += 4) {
-    const y = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
-    d[i] = y;
-    hist[d[i]]++;
-  }
+  for (let i = 0; i < d.length; i += 4) hist[((d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000) | 0]++;
   const total = w * h;
   const pct = (p: number) => {
     let acc = 0;
@@ -131,9 +130,15 @@ function enhance(ctx: CanvasRenderingContext2D, w: number, h: number) {
   const hi = Math.max(lo + 30, pct(0.9)); // paper is the majority, so the 90th percentile is paper
   const scale = 255 / (hi - lo);
   for (let i = 0; i < d.length; i += 4) {
-    const v = Math.max(0, Math.min(255, (d[i] - lo) * scale));
-    d[i] = d[i + 1] = d[i + 2] = v;
+    d[i] = (d[i] - lo) * scale;
+    d[i + 1] = (d[i + 1] - lo) * scale;
+    d[i + 2] = (d[i + 2] - lo) * scale;
   }
+}
+
+function enhance(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const img = ctx.getImageData(0, 0, w, h);
+  enhancePixels(img.data, w, h);
   ctx.putImageData(img, 0, 0);
 }
 

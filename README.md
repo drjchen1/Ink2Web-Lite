@@ -8,30 +8,50 @@ Everything runs on your own computer. The app uses a vision model running locall
 - ⚡ **No API keys or subscriptions** are needed.
 - 💻 **It runs on everyday hardware**, including Apple Silicon laptops with 8 GB of RAM (with a small model).
 
-Version 1.5. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 1.7. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
-## What's new in 1.5
+## What's new in 1.7
 
-- **Convert only the pages you want.** New pages wait until you ask. A page's **Convert** button converts just that page. **Convert all** converts every page that isn't done yet.
-- **Queue pages while one is converting.** Click **Convert** on another page and it waits its turn. **Cancel** takes it back out of the queue, and **Stop** stops the current page and empties the queue.
-- **Convert again asks first** when the page already has a transcription, because converting replaces your edits on that page.
-- **Fix for models that write `\( x \)` with spaces** (e.g. ministral). Their inline math now renders, with no stray-`$` warning.
+**Arrow and brace notes become sentences.** When you point an arrow at a term or put a brace under it with a note, the export now shows the equation cleanly and adds a sentence after it:
+
+> $$u(t) = R\cos(7t - \delta)$$
+> *where R is the new amplitude and δ is the phase shift.*
+
+- **More reliable with small models.** The model no longer has to place arrows and braces inside LaTeX, which was the part it got wrong. It only reports each note as `[[note: term | words]]`. The app writes the sentence, so the wording is always consistent.
+- **Better read aloud.** A screen reader hears the equation, then "where ω is the frequency", instead of notes interrupting the math.
+- **Sensible wording.** Word notes read "ω is the frequency". Math notes on braces read "cos(−δ) = cos(δ)". A single-letter label reads "a = ωt". Descriptive words read "−0.3 is upward". Several notes on one equation are joined with "and".
+- **Colored notes keep their color**, for example a red "upward".
+- **Rescued if the model draws them anyway.** In notes mode, arrows and braces the model writes into an equation are taken out and turned into notes. A brace whose label just repeats the term is dropped.
+- **Your choice.** The new setting **Arrow and brace notes** switches between *as notes* (default) and *as drawn* (the 1.6 behavior).
+
+## What's new in 1.6.1
+
+- **Math rule first in the prompt**, with Greek letters and functions written as LaTeX.
+- **Plain-text equations are rescued.** A line that is only an equation but came back as plain text is turned into display math.
+- **Arrow notes copied as stacked words are joined** into one italic note line.
+- **A leading minus is no longer a bullet.**
+- **Small narrow drawings are found**, like a hanging spring.
+
+## What's new in 1.6
+
+Ink2Web Lite understands the marks instructors add to their notes: arrow and brace notes, boxed results, underlined words, comments in a different ink color, and a column of dots for skipped steps. Colors are shown in accessible shades and are also italic, so they don't rely on color alone. **Boost contrast** keeps ink colors.
 
 ---
 
 ## What it does
 
-- Reads handwritten notes and transcribes them into text and LaTeX, keeping the author's wording.
+- Reads handwritten notes and transcribes them into text and LaTeX, keeping the author's wording and marks.
 - Finds hand-drawn figures (graphs, diagrams, sketches), crops them, and places them where they appear in the notes.
 - Copies the original layout: figure size, alignment, and text written beside a drawing.
 - Produces a single self-contained HTML file built for accessibility:
   - correct heading structure and landmarks
   - MathJax with assistive MathML
   - alt text for every figure
+  - colors that meet WCAG contrast, never used as the only cue
   - reflow on small screens
-- Lets you review and fix everything before exporting: the transcription, the math, the figure crops, alt text, and the layout.
+- Lets you convert only the pages you want, and review and fix everything before exporting.
 
 ---
 
@@ -76,13 +96,13 @@ node -v && ollama --version
 Any Ollama model that can read images works. The app doesn't require a specific one. Two that work well on an 8 GB Mac:
 
 ```bash
-ollama pull qwen2.5vl:3b            # small and fast
-ollama pull qwen3-vl:4b-instruct    # newer; use the -instruct tag
+ollama pull qwen3-vl:4b-instruct    # recommended default; use the -instruct tag
+ollama pull qwen2.5vl:3b            # smaller fallback
 ```
 
 **Use instruct builds, not thinking builds.** For Qwen3-VL, the default tags (like `qwen3-vl:4b`) are "thinking" builds. They're much slower for transcription and may return empty pages. HELP.md explains why.
 
-Larger models are more accurate on messy handwriting but slower and need more memory. You can switch models at any time in the app.
+Larger models are more accurate on messy handwriting, but they're slower and need more memory. You can switch models at any time in the app.
 
 ---
 
@@ -97,6 +117,13 @@ npm run dev
 
 Open **http://localhost:5173** in your browser. Press `Ctrl+C` in the terminal to stop the app.
 
+For everyday use of a settled version, you can build once and run the faster preview server instead:
+
+```bash
+npm run build      # once per new version
+npm run preview    # then open http://localhost:4173
+```
+
 If Ollama runs on a different machine:
 
 ```bash
@@ -105,7 +132,7 @@ OLLAMA_HOST=http://192.168.1.20:11434 npm run dev
 
 ### Updating to a new version
 
-Replace the project files (keep or delete `node_modules`), then run `npm install` and `npm run dev` again.
+Replace the project files (keep or delete `node_modules`), then run `npm install` and `npm run dev` again. Reload the browser tab so it picks up the new code.
 
 ---
 
@@ -126,7 +153,7 @@ The full guide is in **[HELP.md](HELP.md)**.
 ```
 PDF / image ──► page image
                   │
-                  ├─► Vision model: transcribe ──► Markdown + LaTeX + figure markers
+                  ├─► Vision model: transcribe ──► Markdown + LaTeX + marks + notes + figure markers
                   │
                   └─► Ink analysis (no model) ──► drawings + lines of text on the page
                                   │
@@ -137,10 +164,11 @@ PDF / image ──► page image
 
 A few design choices matter for accuracy:
 
-- **The model only writes Markdown and LaTeX**, which small vision models do reliably. The app's own code builds all the HTML and accessibility markup, so every export has the same structure.
+- **The model only writes Markdown and LaTeX**, plus small extensions for underlined words, colored ink, and notes. Small vision models do this reliably. The app's own code builds all the HTML and accessibility markup, so every export has the same structure.
+- **The model reports notes; the app writes the sentences.** Deciding where an arrow points inside LaTeX is hard for a small model. Naming the term and copying the note is not.
 - **Figures are found from the ink itself**, not only from the model, because small models often forget to mention a drawing. Sizes are measured against the author's own letter height, which makes detection work for large or small writing and for portrait or landscape pages.
 - **Figures are placed by where they sit on the page**, and text written beside a drawing stays beside it in the export.
-- **Model output is cleaned up**: code fences, repeated text, spaced math delimiters, and sentences wrapped in math blocks are fixed, so screen readers read prose as prose.
+- **Model output is cleaned up**: code fences, repeated text, spaced math delimiters, HTML color tags, plain-text equations, and sentences wrapped in math blocks are fixed, so screen readers read prose as prose and math as math.
 - **Pages convert one at a time, only when asked**, which keeps memory use low on small machines.
 
 ---
@@ -153,17 +181,17 @@ src/
   components/           settings panel, page view, crop editor, preview
   lib/
     ollama.ts           talks to the local Ollama server
-    prompts.ts          instructions given to the model
+    prompts.ts          instructions given to the model (notes and drawn styles)
     pipeline.ts         converts one page from start to finish
     layout.ts           finds drawings and text lines in the ink
     placement.ts        decides where figures go in the text
-    transcript.ts       cleans model output; edits figure markers
-    markdown.ts         Markdown → accessible HTML
+    transcript.ts       cleans model output; moves drawn notes out; edits figure markers
+    markdown.ts         Markdown (+ marks, "where" sentences) → accessible HTML
     exportHtml.ts       builds the downloadable HTML document
-    images.ts           PDF/image loading, cropping
+    images.ts           PDF/image loading, contrast boost, cropping
     mathjax.ts          MathJax for the in-app preview
 tests/                  automated tests (npm test)
-vite.config.ts          dev server + Ollama proxy
+vite.config.ts          dev server, Ollama proxy, asset copying
 ```
 
 Runtime dependencies: React, pdf.js, and MathJax.
@@ -173,7 +201,7 @@ Runtime dependencies: React, pdf.js, and MathJax.
 ## Testing
 
 ```bash
-npm test          # logic, export, and layout tests (needs Node 22.6+)
+npm test          # logic, export, layout, and notation tests (needs Node 22.6+)
 npm run typecheck
 ```
 
@@ -181,7 +209,9 @@ npm run typecheck
 
 ## Known limits
 
-- **Model misreadings.** The transcription is only as good as the model. Small models occasionally misread words or symbols. A larger model or the **High detail** setting helps. Always proofread before publishing.
+- **Model misreadings.** The transcription is only as good as the model. Small models occasionally misread words or symbols (a handwritten 7 read as 9, for example). A larger model or the **High detail** setting helps. Always proofread before publishing.
+- **Spelling gets "corrected."** Small models tend to fix the author's spelling despite instructions to copy exactly. Fix it back in **Edit source** if it matters.
+- **Notes need the right target.** A note sentence is only as good as the term the model names. If it names the wrong term, edit the `[[note: term | words]]` line.
 - **Very flat drawings** (a lone number line, a single long arrow) may not be detected. Add them with **+ Add figure**.
 - **A large bracket or matrix written on its own** may be mistaken for a drawing. Delete it in its figure card.
 - **Work isn't saved between sessions.** Refreshing the browser clears all pages, so export before closing.

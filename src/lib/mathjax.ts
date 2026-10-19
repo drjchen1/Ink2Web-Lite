@@ -2,6 +2,10 @@
  * Loads MathJax for the in-app preview from the local npm package (works offline).
  * SVG output is used because it is a single self-contained file (no font assets).
  * Exported documents use the CDN CHTML build instead (see exportHtml.ts).
+ *
+ * The mathtools extension (for \mathclap under arrow and brace notes) is loaded from
+ * next to the MathJax file: in dev, Vite serves it from node_modules; in a build,
+ * vite.config.ts copies it to assets/input/tex/extensions/.
  */
 import mathjaxUrl from 'mathjax/es5/tex-svg.js?url';
 
@@ -23,7 +27,12 @@ function load(): Promise<MathJaxApi> {
   if (!loading) {
     loading = new Promise((resolve, reject) => {
       window.MathJax = {
-        tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
+        loader: { load: ['[tex]/mathtools'] },
+        tex: {
+          packages: { '[+]': ['mathtools'] },
+          inlineMath: [['\\(', '\\)']],
+          displayMath: [['\\[', '\\]']],
+        },
         svg: { fontCache: 'global' },
         startup: { typeset: false },
       };

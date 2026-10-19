@@ -1,7 +1,7 @@
 import type { Box, Figure, Page, Settings } from '../types.ts';
 import { chat } from './ollama.ts';
 import { cropBase64, cropFigure, modelImage, pageLayout, snapToInk, squareImage } from './images.ts';
-import { DESCRIBE_USER, LOCATE_SCHEMA, TRANSCRIBE_SYSTEM, TRANSCRIBE_USER, locatePrompt } from './prompts.ts';
+import { DESCRIBE_USER, LOCATE_SCHEMA, TRANSCRIBE_SYSTEM, locatePrompt, transcribePrompt } from './prompts.ts';
 import { defaultLayout, matchFigures } from './layout.ts';
 import { besideUnitCount, placeByPosition, renumber, type Placed } from './placement.ts';
 import { cleanModelOutput, extractFigures, isLooping, parseBoxes, removeMarkers, trimRepetition } from './transcript.ts';
@@ -43,6 +43,7 @@ export async function convertPage(
   onProgress: (p: PageProgress) => void,
 ): Promise<{ source: string; figures: Figure[] }> {
   const base = { baseUrl: settings.baseUrl, model: settings.model, disableThinking: thinking, signal };
+  const style = settings.annotations ?? 'notes';
   const layoutPromise = pageLayout(page.image);
 
   let looped = false;
@@ -54,7 +55,7 @@ export async function convertPage(
       { role: 'system', content: TRANSCRIBE_SYSTEM },
       {
         role: 'user',
-        content: TRANSCRIBE_USER,
+        content: transcribePrompt(style),
         images: [await modelImage(page.image, settings.detail, settings.enhance)],
       },
     ],
@@ -71,7 +72,7 @@ export async function convertPage(
     },
   });
 
-  const text = cleanModelOutput(looped ? trimRepetition(raw) : raw);
+  const text = cleanModelOutput(looped ? trimRepetition(raw) : raw, style);
   let { source, descriptions } = extractFigures(text);
   const layout = await layoutPromise;
   const regions = layout.figures;

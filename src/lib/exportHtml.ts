@@ -1,5 +1,5 @@
 import type { Figure, Page } from '../types.ts';
-import { CLEAR_MARK, escapeHtml, markdownToHtml, type RenderContext } from './markdown.ts';
+import { CLEAR_MARK, INK_COLORS, escapeHtml, markdownToHtml, type RenderContext } from './markdown.ts';
 import { MARKER_LINE, sourceUnits } from './transcript.ts';
 
 /** Renders figures and pages to HTML; builds the standalone, accessible export. */
@@ -9,6 +9,7 @@ const GREEK = 'alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta
 /** Turns stray LaTeX in alt text into plain words a screen reader can say. */
 export function plainMath(text: string): string {
   let t = text.replace(/\$+/g, '');
+  t = t.replace(/\\(?:color|textcolor)\s*\{[^{}]*\}/g, '');
   for (let i = 0; i < 3; i++) t = t.replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '$1/$2');
   t = t
     .replace(/\\sqrt\s*\{([^{}]*)\}/g, 'square root of $1')
@@ -35,8 +36,13 @@ export function polishAlt(text: string): string {
 }
 
 /**
- * Figure layout CSS, used by both the export and the in-app preview.
- * Width is a CSS variable so the narrow-screen rule can override it (WCAG 1.4.10 reflow).
+ * Content CSS shared by the export and the in-app preview: figure layout plus the
+ * handwriting marks (colored notes, underlined words).
+ *
+ * Colored notes are also italic, so the difference from the main text never relies
+ * on color alone (WCAG 1.4.1). Underlined words use a thick, offset underline in
+ * the text color so they don't look like links.
+ * Figure width is a CSS variable so the narrow-screen rule can override it (WCAG 1.4.10 reflow).
  */
 export const FIGURE_CSS = `
 figure.fig{width:var(--w,100%);max-width:100%;margin:0 auto 1rem}
@@ -49,6 +55,11 @@ figure.fig.wrap.align-right{float:right;margin:.25rem 0 1rem 1.5rem}
 figure.fig:not(.wrap),figure.fig.wrap,h1,h2,h3,h4,h5,h6,hr,.page-break,.fig-clear{clear:both}
 figure.fig.wrap~.math-display,figure.fig.wrap~.table-wrap{min-width:min(14rem,100%)}
 @media (max-width:40rem){figure.fig,figure.fig.wrap.align-left,figure.fig.wrap.align-right{float:none;width:min(100%,max(calc(var(--w,100%) * 2),50%));margin:0 auto 1rem}}
+.ink{font-style:italic}
+${Object.entries(INK_COLORS)
+  .map(([name, hex]) => `.ink-${name}{color:${hex}}`)
+  .join('\n')}
+strong.ul{font-weight:600;text-decoration:underline;text-decoration-thickness:.12em;text-underline-offset:.2em}
 `;
 
 export function figureHtml(fig: Figure | undefined, pageNo: number): string {
@@ -182,7 +193,8 @@ export function buildDocument(inputPages: Page[], opts: ExportOptions): string {
 <title>${title}</title>
 <script>
 window.MathJax = {
-  tex: { inlineMath: [['\\\\(', '\\\\)']], displayMath: [['\\\\[', '\\\\]']] },
+  loader: { load: ['[tex]/mathtools'] },
+  tex: { packages: { '[+]': ['mathtools'] }, inlineMath: [['\\\\(', '\\\\)']], displayMath: [['\\\\[', '\\\\]']] },
   options: { menuOptions: { settings: { assistiveMml: true } } }
 };
 </script>

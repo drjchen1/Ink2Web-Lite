@@ -111,7 +111,7 @@ button[aria-pressed='true']:hover:not(:disabled) { background: #333; }
 p.warn { padding-left: .75rem; }
 .error { color: var(--err); background: #fdecec; border: 1px solid var(--err); border-radius: 6px; padding: .5rem .75rem; }
 
-/* Preview mirrors the exported document's typography (figure layout rules come from FIGURE_CSS). */
+/* Preview mirrors the exported document's typography (figure and handwriting-mark rules come from FIGURE_CSS). */
 .doc { font-size: 1.05rem; line-height: 1.65; border: 1px solid var(--line); border-radius: 6px; padding: .5rem 1rem; display: flow-root; }
 .doc h2, .doc h3, .doc h4 { margin: 1.25rem 0 .5rem; }
 .doc p, .doc .math-display { margin: 0 0 1rem; }

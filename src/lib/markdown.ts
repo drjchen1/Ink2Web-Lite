@@ -9,6 +9,14 @@
  * Supported: headings, paragraphs (line breaks kept), nested - / 1. lists,
  * blockquotes, pipe tables, ---, **bold**, *italic*, `code`,
  * $inline$, $$display$$, bare \begin{align}...\end{align}, and [[FIGURE n]] markers.
+ *
+ * Handwriting extensions:
+ *   <u>words</u>              underlined words -> <strong class="ul"> (emphasis, not a link look-alike)
+ *   [[red: words]]            words in another ink color -> <span class="ink ink-red">
+ *   [[note: term | words]]    arrow/brace note; consecutive ones become one sentence:
+ *                             "where ω is the frequency and δ is the phase shift."
+ *   [[note: words]]           a free-standing note -> <span class="ink">
+ *   \color{red}{...}          inside math: named colors are mapped to accessible shades
  */
 
 export interface RenderContext {
@@ -24,6 +32,130 @@ export interface RenderOptions {
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 export const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ESC[c]);
+
+/**
+ * Ink colors the app understands, mapped to shades with at least 4.5:1 contrast on
+ * white (WCAG 1.4.3). Pure red/green/orange are too light for body text.
+ */
+export const INK_COLORS: Record<string, string> = {
+  red: '#B3261E',
+  green: '#1B6E2E',
+  orange: '#A84300',
+  purple: '#6B2FA3',
+  blue: '#1A4FB8',
+};
+const INK_NAMES = Object.keys(INK_COLORS).join('|');
+
+/** Internal marker: text after this point starts below any wrapped figure. */
+export const CLEAR_MARK = '[[CLEAR]]';
+
+/* ------------------------------------------------------------------------------------
+ * Arrow and brace notes -> "where ..." sentences
+ * ---------------------------------------------------------------------------------- */
+
+const NOTE_RE = new RegExp(`^\\s*\\[\\[\\s*note(?:\\s+(${INK_NAMES}))?\\s*:\\s*([\\s\\S]*?)\\s*\\]\\]\\s*$`, 'i');
+const GREEK_NAMES = 'alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega';
+const FUNC_NAMES = /^(sin|cos|tan|sec|csc|cot|log|exp|ln)$/i;
+/** Single words that describe rather than name ("upward"): "x is upward", not "x is the upward". */
+const DESCRIPTIVE = /^(\w+(ward|wards|ly|ing|ive|ous|able|ible|ed)|positive|negative|zero|constant|real|complex|up|down|left|right|small|large|big|fixed|unknown|known|same|different|new|old)$/i;
+
+export interface NoteParts {
+  target: string;
+  label: string;
+  color?: string;
+}
+
+/** Splits a [[note ...]] line into its target and words, or null if it has no "|". */
+export function parseNote(line: string): NoteParts | null {
+  const m = line.match(NOTE_RE);
+  if (!m) return null;
+  const body = m[2];
+  let i = body.indexOf(' | ');
+  let len = 3;
+  if (i < 0) {
+    i = body.indexOf('|');
+    len = 1;
+  }
+  if (i < 0) return null;
+  return { target: body.slice(0, i).trim(), label: body.slice(i + len).trim(), color: m[1]?.toLowerCase() };
+}
+
+const stripMath = (s: string) =>
+  s
+    .replace(/\$/g, '')
+    .replace(/\\(?:text|textrm|mbox|mathrm)\s*\{([^{}]*)\}/g, '$1')
+    .trim();
+const norm = (s: string) => s.replace(/\s+|\\[,;!]|\\left|\\right/g, '');
+
+/** Is a note label math (a simplification like \cos(\delta), or a symbol) rather than words? */
+function isMathLabel(label: string): boolean {
+  if (/\\[a-zA-Z]|[=^_{}]/.test(label)) return true;
+  const words = (label.match(/[A-Za-z]{3,}/g) ?? []).filter((w) => !FUNC_NAMES.test(w));
+  return words.length === 0;
+}
+
+/** One clause of a "where" sentence, or null if the note adds nothing. */
+export function noteClause({ target, label, color }: NoteParts): string | null {
+  const t = stripMath(target);
+  let l = stripMath(label);
+  if (!t || !l || norm(t) === norm(l)) return null;
+  let clause: string;
+  if (isMathLabel(l)) {
+    // A letter naming the term ("a", "\omega") reads "a = ωt"; a simplification reads "cos(-δ) = cos(δ)".
+    clause = /^([A-Za-z]|\\[a-zA-Z]+)$/.test(l) ? `$${l} = ${t}$` : `$${t} = ${l}$`;
+  } else {
+    // "omega (frequency)" -> "frequency" (the symbol's name is already shown as math).
+    const named = l.match(new RegExp(`^(?:${GREEK_NAMES})\\s*\\((.+)\\)$`, 'i'));
+    if (named) l = named[1].trim();
+    l = l.replace(/[.;:,]+$/, '');
+    if (/^(the|a|an)\s/i.test(l)) clause = `$${t}$ is ${l}`;
+    else if (/^(is|are|was|means|represents|gives|equals)\b/i.test(l)) clause = `$${t}$ ${l}`;
+    else if (!/\s/.test(l) && DESCRIPTIVE.test(l)) clause = `$${t}$ is ${l}`;
+    else clause = `$${t}$ is the ${l}`;
+  }
+  return color ? `[[${color}: ${clause}]]` : clause;
+}
+
+/** "a", "a and b", "a, b, and c" */
+function joinClauses(c: string[]): string {
+  if (c.length <= 1) return c.join('');
+  if (c.length === 2) return `${c[0]} and ${c[1]}`;
+  return `${c.slice(0, -1).join(', ')}, and ${c[c.length - 1]}`;
+}
+
+/**
+ * Turns each run of consecutive [[note: term | words]] lines (blank lines between
+ * them allowed) into one sentence, e.g. "where $R$ is the new amplitude and
+ * $\delta$ is the phase shift." Notes without "|" are left for the plain note style.
+ */
+export function composeNotes(md: string): string {
+  const lines = md.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const first = parseNote(lines[i]);
+    if (!first) {
+      out.push(lines[i]);
+      continue;
+    }
+    const notes: NoteParts[] = [first];
+    let j = i + 1;
+    for (;;) {
+      let k = j;
+      while (k < lines.length && !lines[k].trim()) k++;
+      const next = k < lines.length ? parseNote(lines[k]) : null;
+      if (!next) break;
+      notes.push(next);
+      j = k + 1;
+    }
+    const clauses = notes.map(noteClause).filter((c): c is string => !!c);
+    // The sentence ends its paragraph, so the next line of the notes starts a new one.
+    if (clauses.length) out.push(`[[where: where ${joinClauses(clauses)}.]]`, '');
+    i = j - 1;
+  }
+  return out.join('\n');
+}
+
+/* ---------------------------------------------------------------------------------- */
 
 const PH_OPEN = '\u0001';
 const PH_CLOSE = '\u0002';
@@ -57,6 +189,19 @@ function protectMath(md: string): { text: string; math: MathToken[] } {
 function inline(s: string): string {
   let t = escapeHtml(s);
   t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Handwriting extensions (after escaping, so match the escaped forms).
+  t = t.replace(/&lt;u&gt;([\s\S]+?)&lt;\/u&gt;/gi, '<strong class="ul">$1</strong>');
+  t = t.replace(
+    new RegExp(`\\[\\[\\s*(${INK_NAMES})\\s*:\\s*([\\s\\S]+?)\\s*\\]\\]`, 'gi'),
+    (_, c: string, body: string) => `<span class="ink ink-${c.toLowerCase()}">${body}</span>`,
+  );
+  // \textcolor{red}{words} written outside math (math is already protected).
+  t = t.replace(
+    new RegExp(`\\\\textcolor\\s*\\{(${INK_NAMES})\\}\\s*\\{([^{}]+)\\}`, 'gi'),
+    (_, c: string, body: string) => `<span class="ink ink-${c.toLowerCase()}">${body}</span>`,
+  );
+  // Notes (after colors, so colored clauses inside a "where" sentence are already spans).
+  t = t.replace(/\[\[\s*(?:note|where)\s*:\s*([\s\S]+?)\s*\]\]/gi, '<span class="ink">$1</span>');
   t = t.replace(/\*\*(?!\s)(.+?)(?<!\s)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/__(?!\s)(.+?)(?<!\s)__/g, '<strong>$1</strong>');
   t = t.replace(/(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])/g, '<em>$1</em>');
@@ -64,12 +209,72 @@ function inline(s: string): string {
   return t;
 }
 
+/** Maps named colors inside LaTeX to the accessible shades used for text. */
+export function accessibleTexColors(tex: string): string {
+  return tex.replace(
+    new RegExp(`\\\\(color|textcolor)\\s*\\{\\s*(${INK_NAMES})\\s*\\}`, 'gi'),
+    (_, cmd: string, c: string) => `\\${cmd}{${INK_COLORS[c.toLowerCase()]}}`,
+  );
+}
+
+/** Index just past the balanced {...} group that opens at `open` (or -1). */
+function groupEnd(s: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < s.length; i++) {
+    if (s[i] === '\\') i++;
+    else if (s[i] === '{') depth++;
+    else if (s[i] === '}' && --depth === 0) return i + 1;
+  }
+  return -1;
+}
+
+/**
+ * Handwritten notes hang a note under or over a term without pushing the
+ * neighboring symbols apart. In LaTeX a wide label widens the term, so text labels
+ * of arrow notes (\underset/\overset) and brace notes (\underbrace/\overbrace) are
+ * wrapped in \mathclap (zero width, centered; needs the mathtools extension, which
+ * the export and the preview load). Math-only labels like \cos(\delta) are left as is.
+ */
+export function clapTextLabels(tex: string): string {
+  const wrap = (label: string) =>
+    /\\text\s*\{/.test(label) && !/^\s*\\mathclap\b/.test(label) ? `\\mathclap{${label}}` : label;
+  let out = '';
+  let i = 0;
+  const cmd = /\\(underset|overset|underbrace|overbrace)\s*\{/g;
+  let m: RegExpExecArray | null;
+  while ((m = cmd.exec(tex))) {
+    const open = m.index + m[0].length - 1;
+    const end = groupEnd(tex, open);
+    if (end < 0) break;
+    if (m[1] === 'underset' || m[1] === 'overset') {
+      // \underset{LABEL}{term}: the first group is the label.
+      out += tex.slice(i, open) + `{${wrap(tex.slice(open + 1, end - 1))}}`;
+      i = end;
+    } else {
+      // \underbrace{term}_{LABEL} / \overbrace{term}^{LABEL}
+      const after = tex.slice(end).match(/^\s*[_^]\s*\{/);
+      if (!after) continue;
+      const lOpen = end + after[0].length - 1;
+      const lEnd = groupEnd(tex, lOpen);
+      if (lEnd < 0) break;
+      out += tex.slice(i, lOpen) + `{${wrap(tex.slice(lOpen + 1, lEnd - 1))}}`;
+      i = lEnd;
+    }
+    cmd.lastIndex = i;
+  }
+  return out + tex.slice(i);
+}
+
+/** All LaTeX adjustments applied before rendering. */
+export const prepareTex = (tex: string) => clapTextLabels(accessibleTexColors(tex));
+
 function restoreMath(html: string, math: MathToken[]): string {
   return html.replace(PH_RE, (_, i: string) => {
     const m = math[Number(i)];
     if (!m) return '';
     if (m.tex === '\\$') return '$';
-    return m.display ? `\\[${escapeHtml(m.tex)}\\]` : `\\(${escapeHtml(m.tex)}\\)`;
+    const tex = escapeHtml(prepareTex(m.tex));
+    return m.display ? `\\[${tex}\\]` : `\\(${tex}\\)`;
   });
 }
 
@@ -81,17 +286,23 @@ const splitRow = (line: string) =>
     .split('|')
     .map((c) => c.trim());
 
+/** "- sin(δ)" or "- 3x + 1": a minus sign starting an expression, not a bullet point. */
+function looksLikeMath(content: string): boolean {
+  const t = content.replace(/\u0001\d+\u0002/g, ' x ').replace(/\\[a-zA-Z]+/g, ' ');
+  if (!/^[\s(\[{]*([A-Za-z]\b|\d|[A-Za-z]{2,4}\s*[(^]|x\b)/.test(t)) return false;
+  const words = (t.match(/[A-Za-z]{3,}/g) ?? []).filter((w) => !/^(sin|cos|tan|sec|csc|cot|log|exp)$/i.test(w));
+  return words.length === 0;
+}
+
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 const HEADING_RE = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
 const HR_RE = /^\s*([-*_])(\s*\1){2,}\s*$/;
 const FIG_RE = /^\s*\[\[\s*FIGURE\s+(\d+)\s*\]\]\s*$/i;
-/** Internal marker: text after this point starts below any wrapped figure. */
-export const CLEAR_MARK = '[[CLEAR]]';
 const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
 export function markdownToHtml(md: string, opts: RenderOptions): string {
   const ctx = opts.ctx ?? { lastHeading: 1 };
-  const { text, math } = protectMath(md.replace(/\r\n?/g, '\n'));
+  const { text, math } = protectMath(composeNotes(md.replace(/\r\n?/g, '\n')));
   const lines = text.split('\n');
   const out: string[] = [];
   let para: string[] = [];
@@ -193,7 +404,7 @@ export function markdownToHtml(md: string, opts: RenderOptions): string {
     }
 
     const li = line.match(LIST_RE);
-    if (li) {
+    if (li && !(li[2] === '-' && looksLikeMath(li[3]))) {
       flushPara();
       const indent = li[1].replace(/\t/g, '    ').length;
       const tag: 'ul' | 'ol' = /\d/.test(li[2]) ? 'ol' : 'ul';
