@@ -1,7 +1,7 @@
 {
   "name": "ink2web-lite",
   "private": true,
-  "version": "1.7.0",
+  "version": "1.7.1",
   "type": "module",
   "description": "Handwritten math notes to accessible HTML, using a local Ollama vision model.",
   "scripts": {
@@ -9,7 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc",
-    "test": "node --experimental-strip-types tests/logic.test.ts && node --experimental-strip-types tests/export.test.ts && node --experimental-strip-types tests/layout.test.ts && node --experimental-strip-types tests/notation.test.ts"
+    "test": "node --experimental-strip-types tests/logic.test.ts && node --experimental-strip-types tests/export.test.ts && node --experimental-strip-types tests/layout.test.ts && node --experimental-strip-types tests/notation.test.ts && node --experimental-strip-types tests/prompts.test.ts"
   },
   "dependencies": {
     "mathjax": "^3.2.2",
@@ -26,9 +26,5 @@
   },
   "engines": {
     "node": ">=20.19"
-  },
-  "allowScripts": {
-    "esbuild@0.28.2": true,
-    "fsevents@2.3.3": true
   }
 }

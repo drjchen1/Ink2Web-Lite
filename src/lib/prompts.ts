@@ -21,13 +21,14 @@ const MATH_RULE = `Most important: EVERY piece of math is LaTeX inside dollar si
 - Inside a sentence: $u'(0) = 0$, $m$, $\\cos(7t)$
 - An equation on its own line: $$u(t) = R\\cos(7t - \\delta)$$
 - Several equation lines in a row: $$\\begin{aligned} ... \\\\ ... \\end{aligned}$$
-- Greek letters as LaTeX: \\omega, \\delta, \\pi (not ω, δ, π). Functions as \\sin, \\cos, \\tan, \\ln.`;
+- Greek letters as LaTeX: \\omega, \\delta, \\pi (not ω, δ, π). Functions and operators with a backslash: \\sin, \\cos, \\tan, \\log, \\ln, \\sqrt{...}, \\times, \\cdot.`;
 
 const COMMON_RULES = `1. Copy everything exactly as written, top to bottom: the author's wording, spelling mistakes included. Never add a line, formula, note, box, or color that is not on the page.
 2. Sentences are plain text lines, never inside $...$ or \\text{}. Titles or underlined headings: ## . Leave a blank line between separate ideas.`;
 
 const END_RULES = `5. Underlined words: <u>words</u>. Words in a different ink color: [[red: words]] (or green, orange, purple, blue).
 6. Every drawing (graph, diagram, sketch) gets its own line, without transcribing the drawing: [[FIGURE: short plain-words description]]. Text written beside a drawing goes on the lines after it.
+   A circle, box, or bracket drawn around words is NOT a drawing: transcribe the words and ignore the mark.
 7. Write [illegible] for anything you cannot read. Skip crossed-out work.`;
 
 /**
@@ -48,7 +49,7 @@ ${COMMON_RULES}
    - An arrow from the word "frequency" pointing at ω: [[note: \\omega | frequency]]
    - A brace under cos(-δ) with cos(δ) written under it: [[note: \\cos(-\\delta) | \\cos(\\delta)]]
    - A note in a different ink color: [[note red: term | note]]
-4. Copy these only where the author drew them: a box around a result: \\boxed{...}. A column of dots for skipped steps: its own line $$\\vdots$$
+4. Copy these only where the author drew them: a box around a formula or result: \\boxed{...}. A column of dots for skipped steps: its own line $$\\vdots$$
 ${END_RULES}
 
 Example output:
@@ -72,7 +73,7 @@ ${MATH_RULE}
 Other rules:
 ${COMMON_RULES}
 3. Copy these marks only where the author drew them, inside the math:
-   - box around a result: \\boxed{...}
+   - box around a formula or result: \\boxed{...}
    - brace under a term with a note: \\underbrace{term}_{\\text{note}}  (over: \\overbrace{term}^{\\text{note}})
    - arrow pointing up at a term from a note: \\underset{\\substack{\\uparrow\\\\ \\text{note}}}{term}
 4. A column of dots for skipped steps: its own line $$\\vdots$$
