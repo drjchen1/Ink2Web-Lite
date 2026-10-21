@@ -1,6 +1,6 @@
 # Ink2Web Lite: User Guide
 
-This guide covers everyday use of Ink2Web Lite 1.7. For installation, see [README.md](README.md).
+This guide covers everyday use of Ink2Web Lite 1.7.2. For installation, see [README.md](README.md).
 
 > **Before you start:** Ink2Web Lite doesn't save your work between sessions. Refreshing or closing the browser tab clears all pages, so download the HTML before you leave.
 
@@ -28,7 +28,7 @@ This guide covers everyday use of Ink2Web Lite 1.7. For installation, see [READM
 2. Start the app with `npm run dev` and open **http://localhost:5173**.
 3. **Choose a model**, then **add your notes** (PDF or photos).
 4. Click **Convert** on the pages you want, or **Convert all**.
-5. **Review each converted page**: check the text, math, marks, and figures against the original.
+5. **Review each converted page**: check the text, math, notes, and figures against the original.
 6. Click **Download HTML**. Only converted pages are included.
 
 A typical page takes from a few seconds to a minute, depending on your model and computer.
@@ -41,16 +41,16 @@ A typical page takes from a few seconds to a minute, depending on your model and
 
 The dropdown lists every model installed in Ollama, with vision-capable models first. Models marked **no vision** can't read images, so don't use them. If you've just installed a model, click **Refresh**.
 
-**Which model?** On an 8 GB Apple Silicon Mac, start with `qwen3-vl:4b-instruct`. If it misreads your handwriting often, try a larger model on a bigger machine. Larger models are more accurate but slower and need more memory.
-
-Models that have worked well on an 8 GB Apple Silicon Mac:
+**Ink2Web Lite is tuned for two Qwen models:**
 
 | Model | Install |
 |---|---|
 | Qwen3-VL 4B, instruct build (recommended) | `ollama pull qwen3-vl:4b-instruct` |
-| Qwen2.5-VL 3B (fallback) | `ollama pull qwen2.5vl:3b` |
+| Qwen2.5-VL 3B (smaller fallback) | `ollama pull qwen2.5vl:3b` |
 
-**Tip for comparing models:** convert one page with one model, switch models, then click **Convert again** on the same page. Only that page is converted, so you can compare quickly.
+Both run on an 8 GB Apple Silicon Mac. Other vision models may work, but the prompt and clean-up are tested only with these two, so results can vary. If you want to adapt the app to another model, see "Tuned for Qwen" in the README.
+
+**Tip for comparing:** convert one page with one model, switch models, then click **Convert again** on the same page. Only that page is converted, so you can compare quickly.
 
 ### Use "instruct" models, not "thinking" ones
 
@@ -59,11 +59,9 @@ Some model families come in two builds with the same size but different training
 - **Thinking (reasoning) builds** write out hidden step-by-step "thinking" before they answer. For a page transcription, that thinking can be several times longer than the transcription itself, and the model has to generate every word of it. This makes conversion much slower. On a long page, the model can also use up its allowed output on thinking and return an empty or cut-off transcription.
 - **Instruct builds** are trained to answer directly. They write only the transcription, so they're much faster and more reliable for this job.
 
-For transcription, always choose the instruct build. Thinking helps with multi-step problem solving, not with copying text off a page.
+**For Qwen3-VL**, the default tags (like `qwen3-vl:4b`) are thinking builds. Use `qwen3-vl:4b-instruct` instead. The same model that was slow or failed as `qwen3-vl:4b` runs fast and well as `qwen3-vl:4b-instruct`, even on an 8 GB Mac.
 
-**For Qwen3-VL in particular**, the default tags (like `qwen3-vl:4b`) are thinking builds. Add `-instruct` to the tag: for example, `qwen3-vl:4b-instruct`. The same model that was slow or failed as `qwen3-vl:4b` can run fast and well as `qwen3-vl:4b-instruct`, even on an 8 GB Mac.
-
-The app tries to switch thinking off automatically. It does this only when Ollama reports that the model supports thinking, and that doesn't work for every model, so picking the instruct tag is the dependable fix. To check what an installed model is, run `ollama show <model>` and look for `thinking` under **Capabilities**.
+The app tries to switch thinking off automatically, but only when Ollama reports that the model supports thinking, and that doesn't work for every model. Picking the instruct tag is the dependable fix. To check an installed model, run `ollama show <model>` and look for `thinking` under **Capabilities**.
 
 ### Image detail
 
@@ -74,17 +72,6 @@ This controls how large an image of the page the model sees.
 | **Fast (1024 px)** | Large, clear handwriting; quick drafts |
 | **Balanced (1344 px)** | The default; good for most notes |
 | **High detail (1792 px)** | Small or dense writing, subscripts, notes under braces and arrows |
-
-### Arrow and brace notes
-
-How notes you attach to part of an equation with an arrow or a brace appear in the export:
-
-| Setting | Result |
-|---|---|
-| **As notes after the equation** (default) | The equation is shown cleanly, followed by a sentence: *where ω is the frequency*. Most reliable with small models, and reads well aloud. |
-| **As drawn in the equation** | Arrows and braces are drawn into the equation, as on paper. Small models often misplace them. |
-
-The setting applies to pages you convert after changing it. See [section 6](#6-handwriting-marks-arrows-braces-boxes-colors) for details.
 
 ### Boost contrast before reading
 
@@ -134,7 +121,7 @@ Pages convert **one at a time**, in page order. This keeps memory use low on sma
 
 ### Converting a page again
 
-When a page already has a transcription, its button reads **Convert again**. Use it after switching to a better model or changing settings. The app asks before converting, because it **replaces your edits on that page**, including alt text and figure layout.
+When a page already has a transcription, its button reads **Convert again**. Use it after switching models or changing settings. The app asks before converting, because it **replaces your edits on that page**, including alt text and figure layout.
 
 ### Page status
 
@@ -177,8 +164,6 @@ Keep ordinary sentences **outside** of `$…$`. Screen readers read anything ins
 
 Inline math must not start or end with a space: write `$x^2$`, not `$ x^2 $`. This rule is what lets "$5 and $10" stay as text.
 
-The marks you add to your notes (arrows, braces, boxes, colors) have their own section: see [Handwriting marks](#6-handwriting-marks-arrows-braces-boxes-colors).
-
 ### Warnings
 
 - **LaTeX warnings** (yellow box) flag common slips: unbalanced braces, unmatched `\begin`/`\end` or `\left`/`\right`, or a stray `$`.
@@ -199,10 +184,12 @@ The model copies what it sees, mistakes included, though small models sometimes 
 
 ### Arrow and brace notes
 
-When you point an arrow at a term or put a brace under part of an equation with a note, Ink2Web Lite (in the default **notes** style) keeps the equation clean and adds a sentence after it:
+When you point an arrow at a term or put a brace under part of an equation with a note, Ink2Web Lite keeps the equation clean and adds a sentence after it:
 
 > $$u(t) = A\cos(\omega t) + B\sin(\omega t) = R\cos(\omega t - \delta)$$
 > *where ω is the frequency, a = ωt, and b = −δ.*
+
+This is more reliable with small models than drawing the arrow into the equation, and a screen reader hears the equation, then the explanation, without interruptions.
 
 In **Edit source**, each note is one line right after its equation:
 
@@ -225,20 +212,21 @@ The part before `|` is the **term** the arrow or brace points at, in LaTeX witho
 
 To fix a note, edit its line. To remove one, delete the line. A note with no `|`, like `[[note: compare to the natural frequency]]`, is shown as written, in italics.
 
-**Prefer arrows drawn in the equation?** Set **Arrow and brace notes** to **As drawn in the equation** before converting. You can also type them yourself:
+**Want an arrow or brace drawn in the equation for a particular spot?** Type it yourself in **Edit source**; it renders as drawn:
 
 | In your notes | Type this inside math |
 |---|---|
 | A brace under part of an equation, with a note | `\underbrace{\cos(-\delta)}_{\cos(\delta)}` |
 | A brace over part of an equation | `\overbrace{\omega t}^{a}` |
 | An arrow pointing up at a term, with a note below | `\underset{\substack{\uparrow\\ \text{new amplitude}}}{R}` |
-| An arrow pointing down at a term, with a note above | `\overset{\substack{\text{note}\\ \downarrow}}{R}` |
+
+Note that **Convert again** replaces hand edits, and new conversions always produce notes.
 
 ### Other marks
 
 | In your notes | Type this in Edit source |
 |---|---|
-| A box around a result | `$$\boxed{R = \sqrt{A^2+B^2}}$$` |
+| A box around a formula or result | `$$\boxed{R = \sqrt{A^2+B^2}}$$` |
 | A column of dots for skipped steps | `$$\vdots$$` on its own line |
 | Underlined words | `<u>critically damped</u>` |
 | Underlined math | `$\underline{x}$` |
@@ -246,6 +234,8 @@ To fix a note, edit its line. To remove one, delete the line. A note with no `|`
 | Math in a different color | `$\color{red}{u'(0) = -0.3}$` |
 
 **Colors:** `red`, `green`, `orange`, `purple`, and `blue` are supported. They're shown in darker shades that meet WCAG contrast on white, and colored words are also italic, so the difference never depends on color alone.
+
+A circle, box, or bracket you draw around **words** just to highlight them is ignored; the words are transcribed normally.
 
 ### Tips
 
@@ -341,7 +331,7 @@ Before you publish, check:
 - [ ] Each "where…" note names the right term.
 - [ ] Colored notes still make sense if read aloud without the color (they're italic, but the words should carry the meaning).
 - [ ] Figures appear next to the text that refers to them.
-- [ ] You've proofread the transcription and marks against the original.
+- [ ] You've proofread the transcription and notes against the original.
 
 The export already handles the rest: language, skip link, landmarks, heading order, math for screen readers, color contrast, keyboard focus, and reflow on small screens.
 
@@ -355,8 +345,8 @@ The export already handles the rest: language, skip link, landmarks, heading ord
 | **No models in the list** | Install one: `ollama pull qwen3-vl:4b-instruct`, then **Refresh**. |
 | **Convert buttons are greyed out** | Choose a model first. |
 | **"This model can't read images"** | Choose a vision model from the list. |
-| **A model is very slow, or returns empty or cut-off text** | It's probably a thinking build. Install the instruct build instead, e.g. `qwen3-vl:4b-instruct`. See [Use "instruct" models](#use-instruct-models-not-thinking-ones). |
-| **A model produces garbage** | Some small models (around 2B) are tuned for short questions and can't follow full-page instructions. Use a different model. |
+| **A model is very slow, or returns empty or cut-off text** | It's probably a thinking build. Use `qwen3-vl:4b-instruct`. See [Use "instruct" models](#use-instruct-models-not-thinking-ones). |
+| **Results with another model are poor** | The app is tuned for qwen3-vl:4b-instruct and qwen2.5vl:3b. Try one of those. |
 | **The app seems to behave like an older version** | Check `grep version package.json`, restart `npm run dev`, and hard-refresh the browser tab (⌘⇧R). |
 | **Equations come out as plain text (e.g. `u(t)=0.05cos(7t)`)** | Standalone equations are converted to math automatically. Equations inside a sentence aren't; wrap them in `$…$` in **Edit source**, or try **Convert again**. |
 | **A "where…" sentence names the wrong term** | Fix the term in its `[[note: term \| words]]` line in **Edit source**. |
@@ -366,13 +356,13 @@ The export already handles the rest: language, skip link, landmarks, heading ord
 | **Colored comments come out in the normal color** | Keep **Boost contrast** on (it keeps colors), or add `[[red: …]]` in **Edit source**. |
 | **"A '$' delimiter is unmatched" but the math looks fine** | Look for spaces just inside `$…$`, like `$ x $`, and remove them. |
 | **A PDF page shows only bits of the handwriting** | The app handles most scanner PDFs. If the page image still looks broken, re-scan or export it as an image and upload that instead. |
-| **Lots of misread words** | Try **High detail**, keep **Boost contrast** on, or use a larger model, then **Convert again**. |
-| **The output repeats itself or stops early** | The app trims repetition automatically. **Convert again**, or try another model. Raise the context window if long pages are cut off. |
+| **Lots of misread words** | Try **High detail**, keep **Boost contrast** on, then **Convert again**. |
+| **The output repeats itself or stops early** | The app trims repetition automatically. **Convert again**. Raise the context window if long pages are cut off. |
 | **A figure is missing** | Click **+ Add figure**. |
 | **Something that isn't a drawing became a figure** | **Delete** it in its figure card. |
 | **A figure's crop cuts off a label** | **Adjust crop** and drag the edge out, or try **Snap to ink**. |
 | **Text sits beside a figure that shouldn't** | Lower **Lines beside it**, or turn off **Put text beside the figure**. |
-| **Conversion is very slow** | Make sure you're using an instruct build. Then try **Fast** detail, a smaller model, or a context window of 4096. Close other memory-heavy apps. The first page is slower while the model loads. |
+| **Conversion is very slow** | Make sure you're using an instruct build. Then try **Fast** detail or a context window of 4096. Close other memory-heavy apps. The first page is slower while the model loads. |
 | **A page is missing from the export** | Only converted pages are exported. Click **Convert** on it. |
 | **Math shows as raw `\(…\)` in the exported file** | The viewer is offline; MathJax needs the internet to load. |
 
@@ -383,6 +373,9 @@ The export already handles the rest: language, skip link, landmarks, heading ord
 **Does anything leave my computer?**
 No. Your notes go only to Ollama on your own machine. The only outside connection is MathJax loading when someone opens the exported file.
 
+**Which models does it support?**
+It's tuned for qwen3-vl:4b-instruct (recommended) and qwen2.5vl:3b. Any Ollama vision model can be selected, but others aren't tested. The project is on GitHub, so you can adapt the prompt and clean-up to another model; see "Tuned for Qwen" in the README.
+
 **Can I close the app and continue later?**
 Not in this version. Pages live only in the open browser tab, so finish and download before closing.
 
@@ -390,10 +383,10 @@ Not in this version. Pages live only in the open browser tab, so finish and down
 It's told not to: it should transcribe exactly what's written, so you control every change. Small models sometimes fix spelling anyway, so proofread.
 
 **Why does my arrow note become a "where" sentence?**
-Placing an arrow inside an equation is the hardest thing for a small model to get right, and a note inside the math interrupts a screen reader. A sentence after the equation is reliable and reads naturally. If you prefer arrows and braces in the equation, set **Arrow and brace notes** to **As drawn in the equation**.
+Placing an arrow inside an equation is the hardest thing for a small model to get right, and a note inside the math interrupts a screen reader. A sentence after the equation is reliable and reads naturally. If you want a particular arrow or brace drawn in the equation, type it in **Edit source** (see [section 6](#6-handwriting-marks-arrows-braces-boxes-colors)).
 
 **Will it keep my boxes, underlines, and colors?**
-Yes, when the model recognizes them. Anything missed can be added in **Edit source** in a few seconds; see [section 6](#6-handwriting-marks-arrows-braces-boxes-colors).
+Yes, when the model recognizes them. Anything missed can be added in **Edit source** in a few seconds.
 
 **Why are my red comments a darker red in the export?**
 Bright red, green, and orange text is hard to read on white. The export uses darker shades of the same colors that meet the WCAG contrast requirement.
@@ -405,7 +398,7 @@ Yes. Click **Convert** on each page you want. Only converted pages go into the e
 Yes. Click **Convert all**. Pages are processed one after another, and a multi-page PDF exports as one document.
 
 **Why is the "-instruct" version of a model so much faster?**
-The default build of some models "thinks" out loud, privately, before answering, and that thinking can be several times longer than the transcription. The instruct build skips it and writes the transcription directly. Both are the same size, but the instruct build does far less work per page. See [Use "instruct" models](#use-instruct-models-not-thinking-ones).
+The default build of some models "thinks" out loud, privately, before answering, and that thinking can be several times longer than the transcription. The instruct build skips it and writes the transcription directly. Both are the same size, but the instruct build does far less work per page.
 
 **Why does it use both a model and a "detector" for figures?**
 Small vision models often forget to mention a drawing or misjudge where it is. The detector finds drawings directly from the ink in a fraction of a second, and the model describes them. Each covers the other's weak spot.

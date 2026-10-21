@@ -43,7 +43,6 @@ export async function convertPage(
   onProgress: (p: PageProgress) => void,
 ): Promise<{ source: string; figures: Figure[] }> {
   const base = { baseUrl: settings.baseUrl, model: settings.model, disableThinking: thinking, signal };
-  const style = settings.annotations ?? 'notes';
   const layoutPromise = pageLayout(page.image);
 
   let looped = false;
@@ -55,7 +54,7 @@ export async function convertPage(
       { role: 'system', content: TRANSCRIBE_SYSTEM },
       {
         role: 'user',
-        content: transcribePrompt(style),
+        content: transcribePrompt(),
         images: [await modelImage(page.image, settings.detail, settings.enhance)],
       },
     ],
@@ -72,7 +71,8 @@ export async function convertPage(
     },
   });
 
-  const text = cleanModelOutput(looped ? trimRepetition(raw) : raw, style);
+  // Arrows and braces the model still draws inside an equation become notes here.
+  const text = cleanModelOutput(looped ? trimRepetition(raw) : raw);
   let { source, descriptions } = extractFigures(text);
   const layout = await layoutPromise;
   const regions = layout.figures;

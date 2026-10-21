@@ -58,9 +58,9 @@ export interface Page {
 }
 
 /**
- * How arrow and brace notes on equations are written.
- * notes - the equation stays clean and a sentence follows: "where ω is the frequency"
- * drawn - arrows and braces are drawn in the equation (\underset, \underbrace)
+ * How the clean-up step treats arrows and braces the model writes inside an equation.
+ * The app always uses 'notes' (moved out into "where ..." sentences); 'drawn' (left in
+ * the equation) is kept only for the clean-up helpers and their tests.
  */
 export type AnnotationStyle = 'notes' | 'drawn';
 
@@ -76,8 +76,6 @@ export interface Settings {
   locateFigures: boolean;
   /** Context window passed to Ollama (must hold image tokens + output). */
   numCtx: number;
-  /** Arrow and brace notes (missing in settings saved by older versions = 'notes'). */
-  annotations?: AnnotationStyle;
 }
 
 export interface ModelInfo {

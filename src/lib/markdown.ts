@@ -58,6 +58,7 @@ const GREEK_NAMES = 'alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|la
 const FUNC_NAMES = /^(sin|cos|tan|sec|csc|cot|log|exp|ln)$/i;
 /** Single words that describe rather than name ("upward"): "x is upward", not "x is the upward". */
 const DESCRIPTIVE = /^(\w+(ward|wards|ly|ing|ive|ous|able|ible|ed)|positive|negative|zero|constant|real|complex|up|down|left|right|small|large|big|fixed|unknown|known|same|different|new|old)$/i;
+const TEXT_CMD = /\\(?:text|textrm|mbox|mathrm)\s*\{([^{}]*)\}/g;
 
 export interface NoteParts {
   target: string;
@@ -80,38 +81,85 @@ export function parseNote(line: string): NoteParts | null {
   return { target: body.slice(0, i).trim(), label: body.slice(i + len).trim(), color: m[1]?.toLowerCase() };
 }
 
-const stripMath = (s: string) =>
-  s
-    .replace(/\$/g, '')
-    .replace(/\\(?:text|textrm|mbox|mathrm)\s*\{([^{}]*)\}/g, '$1')
-    .trim();
+const stripMath = (s: string) => s.replace(/\$/g, '').replace(TEXT_CMD, '$1').trim();
 const norm = (s: string) => s.replace(/\s+|\\[,;!]|\\left|\\right/g, '');
 
-/** Is a note label math (a simplification like \cos(\delta), or a symbol) rather than words? */
-function isMathLabel(label: string): boolean {
-  if (/\\[a-zA-Z]|[=^_{}]/.test(label)) return true;
-  const words = (label.match(/[A-Za-z]{3,}/g) ?? []).filter((w) => !FUNC_NAMES.test(w));
-  return words.length === 0;
+/** English words in a label (3+ letters, not LaTeX commands or function names). */
+function labelWords(label: string): string[] {
+  const t = label.replace(/\$/g, '').replace(TEXT_CMD, ' $1 ').replace(/\\[a-zA-Z]+/g, ' ');
+  return (t.match(/[A-Za-z]{3,}/g) ?? []).filter((w) => !FUNC_NAMES.test(w));
 }
 
-/** One clause of a "where" sentence, or null if the note adds nothing. */
+/**
+ * Turns a label that mixes words and math into prose with inline math:
+ * "oscillation with frequency \omega_n = \sqrt{\frac{k}{m}}"
+ *   -> "oscillation with frequency $\omega_n = \sqrt{\frac{k}{m}}$"
+ * Words (also inside \text{...}) stay text; everything else becomes $...$.
+ */
+export function labelToProse(label: string): string {
+  const parts: string[] = [];
+  const pushText = (s: string) => {
+    const t = s.replace(/\s+/g, ' ').trim();
+    if (t) parts.push(t);
+  };
+  const pushMath = (s: string) => {
+    const t = s.trim();
+    if (!t) return;
+    parts.push(/^[.,;:!?()]+$/.test(t) ? t : `$${t}$`);
+  };
+  const segments = label.replace(/\$/g, '').split(/(\\(?:text|textrm|mbox|mathrm)\s*\{[^{}]*\})/);
+  for (const seg of segments) {
+    const txt = seg.match(/^\\(?:text|textrm|mbox|mathrm)\s*\{([^{}]*)\}$/);
+    if (txt) {
+      pushText(txt[1]);
+      continue;
+    }
+    // Runs of words: a 3+ letter word (or a common short word like "as") not part of a
+    // LaTeX command, plus following words. A word followed by _ ^ { ( is math ("in(x)").
+    const run = /(?<![\\A-Za-z])(?:[A-Za-z]{3,}|as|is|of|to|in|at|by|on|or|if|an)(?:\s+[A-Za-z]{2,}(?![A-Za-z_^{(]))*(?![A-Za-z_^{(])/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = run.exec(seg))) {
+      if (m[0].split(/\s+/).every((w) => FUNC_NAMES.test(w))) continue; // "cos" alone is math
+      pushMath(seg.slice(last, m.index));
+      pushText(m[0]);
+      last = m.index + m[0].length;
+    }
+    pushMath(seg.slice(last));
+  }
+  return parts.join(' ').replace(/\s+([.,;:!?])/g, '$1');
+}
+
+/**
+ * One clause of a "where" sentence, or null if the note adds nothing.
+ *
+ * - A pure-math label is an equation: "cos(-δ) = cos(δ)", or "a = ωt" for a letter.
+ * - Any label with words is a description, joined with "is", never "=":
+ *   "ω is the frequency", "−0.3 is upward",
+ *   "C₁cos(ωₙt) + C₂sin(ωₙt) is oscillation with frequency ωₙ = √(k/m)".
+ *   "the" is added only for a short plain name ("new amplitude").
+ */
 export function noteClause({ target, label, color }: NoteParts): string | null {
   const t = stripMath(target);
-  let l = stripMath(label);
-  if (!t || !l || norm(t) === norm(l)) return null;
+  const raw = label.replace(/\$/g, '').trim();
+  if (!t || !raw || norm(t) === norm(stripMath(raw))) return null;
   let clause: string;
-  if (isMathLabel(l)) {
-    // A letter naming the term ("a", "\omega") reads "a = ωt"; a simplification reads "cos(-δ) = cos(δ)".
+  if (!labelWords(raw).length) {
+    const l = stripMath(raw);
     clause = /^([A-Za-z]|\\[a-zA-Z]+)$/.test(l) ? `$${l} = ${t}$` : `$${t} = ${l}$`;
   } else {
+    const plain = stripMath(raw);
     // "omega (frequency)" -> "frequency" (the symbol's name is already shown as math).
-    const named = l.match(new RegExp(`^(?:${GREEK_NAMES})\\s*\\((.+)\\)$`, 'i'));
-    if (named) l = named[1].trim();
-    l = l.replace(/[.;:,]+$/, '');
-    if (/^(the|a|an)\s/i.test(l)) clause = `$${t}$ is ${l}`;
-    else if (/^(is|are|was|means|represents|gives|equals)\b/i.test(l)) clause = `$${t}$ ${l}`;
-    else if (!/\s/.test(l) && DESCRIPTIVE.test(l)) clause = `$${t}$ is ${l}`;
-    else clause = `$${t}$ is the ${l}`;
+    const named = plain.match(new RegExp(`^(?:${GREEK_NAMES})\\s*\\(([^()\\\\]+)\\)$`, 'i'));
+    let prose = named ? named[1].trim() : labelToProse(raw);
+    prose = prose.replace(/[.;:,]+$/, '');
+    const hasMath = prose.includes('$');
+    const wordCount = prose.replace(/\$[^$]*\$/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+    if (/^(the|a|an)\s/i.test(prose)) clause = `$${t}$ is ${prose}`;
+    else if (/^(is|are|was|means|represents|gives|equals)\b/i.test(prose)) clause = `$${t}$ ${prose}`;
+    else if (!hasMath && wordCount === 1 && DESCRIPTIVE.test(prose)) clause = `$${t}$ is ${prose}`;
+    else if (!hasMath && wordCount <= 3) clause = `$${t}$ is the ${prose}`;
+    else clause = `$${t}$ is ${prose}`;
   }
   return color ? `[[${color}: ${clause}]]` : clause;
 }

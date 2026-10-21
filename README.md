@@ -6,43 +6,62 @@ Everything runs on your own computer. The app uses a vision model running locall
 
 - 🔒 **Your notes never leave your machine.** There are no cloud uploads.
 - ⚡ **No API keys or subscriptions** are needed.
-- 💻 **It runs on everyday hardware**, including Apple Silicon laptops with 8 GB of RAM (with a small model).
+- 💻 **It runs on everyday hardware**, including Apple Silicon laptops with 8 GB of RAM.
 
-Version 1.7. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 1.7.2. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
-## What's new in 1.7
+## Tuned for Qwen
 
-**Arrow and brace notes become sentences.** When you point an arrow at a term or put a brace under it with a note, the export now shows the equation cleanly and adds a sentence after it:
+Ink2Web Lite is tuned and tested with two small Qwen vision models:
 
-> $$u(t) = R\cos(7t - \delta)$$
-> *where R is the new amplitude and δ is the phase shift.*
+| Model | Install | Notes |
+|---|---|---|
+| **Qwen3-VL 4B, instruct build** (recommended) | `ollama pull qwen3-vl:4b-instruct` | Best results; runs on an 8 GB Mac |
+| **Qwen2.5-VL 3B** | `ollama pull qwen2.5vl:3b` | Smaller, slightly less accurate |
 
-- **More reliable with small models.** The model no longer has to place arrows and braces inside LaTeX, which was the part it got wrong. It only reports each note as `[[note: term | words]]`. The app writes the sentence, so the wording is always consistent.
-- **Better read aloud.** A screen reader hears the equation, then "where ω is the frequency", instead of notes interrupting the math.
-- **Sensible wording.** Word notes read "ω is the frequency". Math notes on braces read "cos(−δ) = cos(δ)". A single-letter label reads "a = ωt". Descriptive words read "−0.3 is upward". Several notes on one equation are joined with "and".
-- **Colored notes keep their color**, for example a red "upward".
-- **Rescued if the model draws them anyway.** In notes mode, arrows and braces the model writes into an equation are taken out and turned into notes. A brace whose label just repeats the term is dropped.
-- **Your choice.** The new setting **Arrow and brace notes** switches between *as notes* (default) and *as drawn* (the 1.6 behavior).
+Other vision models may work but aren't tested. Each model has its own quirks, and the prompt is kept short on purpose: small models follow a few clear rules much better than a long list of model-specific exceptions.
 
-## What's new in 1.6.1
+**Adapting it to another model?** You're welcome to. Two places to look:
 
-- **Math rule first in the prompt**, with Greek letters and functions written as LaTeX.
-- **Plain-text equations are rescued.** A line that is only an equation but came back as plain text is turned into display math.
-- **Arrow notes copied as stacked words are joined** into one italic note line.
-- **A leading minus is no longer a bullet.**
-- **Small narrow drawings are found**, like a hanging spring.
+- **`src/lib/prompts.ts`**: the transcription prompt. Keep it short; every added rule competes with the important ones.
+- **`src/lib/transcript.ts`**: the clean-up step that repairs model output after transcription. This is the better place for model-specific fixes, because it costs nothing in prompt length and helps every model. For example, models that write `\( x \)` with inner spaces are already handled here.
 
-## What's new in 1.6
+Run `npm test` after changes, and compare a few pages you know well before and after.
 
-Ink2Web Lite understands the marks instructors add to their notes: arrow and brace notes, boxed results, underlined words, comments in a different ink color, and a column of dots for skipped steps. Colors are shown in accessible shades and are also italic, so they don't rely on color alone. **Boost contrast** keeps ink colors.
+---
+
+## What's new
+
+### 1.7.2
+- **One annotation style.** Arrow and brace notes always become a sentence after the equation ("where ω is the frequency"). The *as drawn* option is gone, and the prompt no longer mentions `\underbrace`, `\overbrace` or `\underset`, which keeps it shorter. You can still type those by hand in **Edit source**; they render as before.
+- **Documented model support:** tuned for qwen3-vl:4b-instruct and qwen2.5vl:3b.
+
+### 1.7.1
+- Circles, boxes, and brackets drawn around words are no longer treated as figures.
+- The prompt names more functions and operators (`\log`, `\sqrt`, `\times`, `\cdot`).
+
+### 1.7
+- **Arrow and brace notes become sentences.** The model reports each note as `[[note: term | words]]`; the app writes the sentence after the equation, so the wording is always consistent:
+
+  > $$u(t) = R\cos(7t - \delta)$$
+  > *where R is the new amplitude and δ is the phase shift.*
+
+  Word notes read "ω is the frequency"; math notes on braces read "cos(−δ) = cos(δ)"; single letters read "a = ωt"; describing words read "−0.3 is upward". Several notes on one equation are joined with "and". Colored notes keep their color. Arrows and braces the model draws inside an equation anyway are moved out into notes.
+
+### 1.6.1
+- Math rule first in the prompt; plain-text equations rescued as display math; arrow notes copied as stacked words joined; a leading minus no longer becomes a bullet; small narrow drawings (like a spring) detected.
+
+### 1.6
+- Handwriting marks: boxed results, underlined words, comments in a different ink color (accessible shades, also italic), and a column of dots for skipped steps. **Boost contrast** keeps ink colors.
 
 ---
 
 ## What it does
 
 - Reads handwritten notes and transcribes them into text and LaTeX, keeping the author's wording and marks.
+- Turns arrow and brace notes into "where…" sentences after the equation.
 - Finds hand-drawn figures (graphs, diagrams, sketches), crops them, and places them where they appear in the notes.
 - Copies the original layout: figure size, alignment, and text written beside a drawing.
 - Produces a single self-contained HTML file built for accessibility:
@@ -61,7 +80,7 @@ Ink2Web Lite understands the marks instructors add to their notes: arrow and bra
 |---|---|---|
 | [Node.js](https://nodejs.org) | 22 LTS recommended (20.19 or newer) | Runs the app |
 | [Ollama](https://ollama.com/download) | Current release | Runs the vision model locally |
-| A vision model | Any | Reads the handwriting |
+| A Qwen vision model | see [Tuned for Qwen](#tuned-for-qwen) | Reads the handwriting |
 
 ---
 
@@ -91,18 +110,13 @@ curl -fsSL https://ollama.com/install.sh | sh
 node -v && ollama --version
 ```
 
-### Install a vision model
-
-Any Ollama model that can read images works. The app doesn't require a specific one. Two that work well on an 8 GB Mac:
+### Install a model
 
 ```bash
-ollama pull qwen3-vl:4b-instruct    # recommended default; use the -instruct tag
-ollama pull qwen2.5vl:3b            # smaller fallback
+ollama pull qwen3-vl:4b-instruct
 ```
 
-**Use instruct builds, not thinking builds.** For Qwen3-VL, the default tags (like `qwen3-vl:4b`) are "thinking" builds. They're much slower for transcription and may return empty pages. HELP.md explains why.
-
-Larger models are more accurate on messy handwriting, but they're slower and need more memory. You can switch models at any time in the app.
+**Use the `-instruct` tag.** The default Qwen3-VL tags (like `qwen3-vl:4b`) are "thinking" builds. They're much slower for transcription and may return empty pages. HELP.md explains why.
 
 ---
 
@@ -166,9 +180,9 @@ A few design choices matter for accuracy:
 
 - **The model only writes Markdown and LaTeX**, plus small extensions for underlined words, colored ink, and notes. Small vision models do this reliably. The app's own code builds all the HTML and accessibility markup, so every export has the same structure.
 - **The model reports notes; the app writes the sentences.** Deciding where an arrow points inside LaTeX is hard for a small model. Naming the term and copying the note is not.
+- **Model quirks are fixed after transcription, not in the prompt.** The clean-up step repairs code fences, repeated text, spaced math delimiters, HTML color tags, plain-text equations, and sentences wrapped in math blocks, so screen readers read prose as prose and math as math.
 - **Figures are found from the ink itself**, not only from the model, because small models often forget to mention a drawing. Sizes are measured against the author's own letter height, which makes detection work for large or small writing and for portrait or landscape pages.
 - **Figures are placed by where they sit on the page**, and text written beside a drawing stays beside it in the export.
-- **Model output is cleaned up**: code fences, repeated text, spaced math delimiters, HTML color tags, plain-text equations, and sentences wrapped in math blocks are fixed, so screen readers read prose as prose and math as math.
 - **Pages convert one at a time, only when asked**, which keeps memory use low on small machines.
 
 ---
@@ -181,7 +195,7 @@ src/
   components/           settings panel, page view, crop editor, preview
   lib/
     ollama.ts           talks to the local Ollama server
-    prompts.ts          instructions given to the model (notes and drawn styles)
+    prompts.ts          instructions given to the model
     pipeline.ts         converts one page from start to finish
     layout.ts           finds drawings and text lines in the ink
     placement.ts        decides where figures go in the text
@@ -201,7 +215,7 @@ Runtime dependencies: React, pdf.js, and MathJax.
 ## Testing
 
 ```bash
-npm test          # logic, export, layout, and notation tests (needs Node 22.6+)
+npm test          # logic, export, layout, notation, and prompt tests (needs Node 22.6+)
 npm run typecheck
 ```
 
@@ -209,9 +223,9 @@ npm run typecheck
 
 ## Known limits
 
-- **Model misreadings.** The transcription is only as good as the model. Small models occasionally misread words or symbols (a handwritten 7 read as 9, for example). A larger model or the **High detail** setting helps. Always proofread before publishing.
+- **Model misreadings.** The transcription is only as good as the model. Small models occasionally misread words or symbols (a handwritten 7 read as 9, for example). **High detail** helps. Always proofread before publishing.
 - **Spelling gets "corrected."** Small models tend to fix the author's spelling despite instructions to copy exactly. Fix it back in **Edit source** if it matters.
-- **Notes need the right target.** A note sentence is only as good as the term the model names. If it names the wrong term, edit the `[[note: term | words]]` line.
+- **Notes need the right target.** A "where…" sentence is only as good as the term the model names. If it names the wrong term, edit the `[[note: term | words]]` line.
 - **Very flat drawings** (a lone number line, a single long arrow) may not be detected. Add them with **+ Add figure**.
 - **A large bracket or matrix written on its own** may be mistaken for a drawing. Delete it in its figure card.
 - **Work isn't saved between sessions.** Refreshing the browser clears all pages, so export before closing.

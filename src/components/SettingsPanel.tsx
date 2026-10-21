@@ -1,4 +1,4 @@
-import type { AnnotationStyle, ModelInfo, Settings } from '../types.ts';
+import type { ModelInfo, Settings } from '../types.ts';
 
 interface Props {
   settings: Settings;
@@ -14,11 +14,6 @@ const DETAIL = [
   { value: 1024, label: 'Fast (1024 px)' },
   { value: 1344, label: 'Balanced (1344 px)' },
   { value: 1792, label: 'High detail (1792 px)' },
-];
-
-const ANNOTATIONS: { value: AnnotationStyle; label: string }[] = [
-  { value: 'notes', label: 'As notes after the equation (“where ω is the frequency”)' },
-  { value: 'drawn', label: 'As drawn in the equation (arrows and braces)' },
 ];
 
 export function SettingsPanel({ settings, models, modelError, loadingModels, disabled, onChange, onRefresh }: Props) {
@@ -57,7 +52,7 @@ export function SettingsPanel({ settings, models, modelError, loadingModels, dis
             ) : selected?.vision === false ? (
               <span className="error-text">This model can’t read images. Pick a vision model (e.g. pull one with “ollama pull …”).</span>
             ) : (
-              'Any installed vision-language model works. Use “instruct” builds; larger models are more accurate but slower.'
+              'Tuned for qwen3-vl:4b-instruct and qwen2.5vl:3b. Other vision models may work but aren’t tested.'
             )}
           </p>
         </div>
@@ -77,26 +72,6 @@ export function SettingsPanel({ settings, models, modelError, loadingModels, dis
             ))}
           </select>
           <p className="hint">Higher detail reads small handwriting, brace notes, and labels better but takes longer.</p>
-        </div>
-
-        <div className="field">
-          <label htmlFor="annotations">Arrow and brace notes</label>
-          <select
-            id="annotations"
-            value={settings.annotations ?? 'notes'}
-            disabled={disabled}
-            onChange={(e) => onChange({ annotations: e.target.value as AnnotationStyle })}
-            aria-describedby="annotations-help"
-          >
-            {ANNOTATIONS.map((a) => (
-              <option key={a.value} value={a.value}>
-                {a.label}
-              </option>
-            ))}
-          </select>
-          <p id="annotations-help" className="hint">
-            Notes are more reliable with small models and read better aloud. Applies to pages converted from now on.
-          </p>
         </div>
       </div>
 
