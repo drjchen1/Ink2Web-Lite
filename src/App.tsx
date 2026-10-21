@@ -4,6 +4,18 @@ import { listModels } from './lib/ollama.ts';
 import { ACCEPT, loadFile } from './lib/images.ts';
 import { convertPage } from './lib/pipeline.ts';
 import { buildDocument, downloadHtml, looksLikeFileName } from './lib/exportHtml.ts';
+import {
+  PROJECT_EXT,
+  clearSession,
+  loadSession,
+  markWritten,
+  projectFileName,
+  projectFromJson,
+  projectToJson,
+  resetWritten,
+  saveSession,
+  type Session,
+} from './lib/storage.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { PageView } from './components/PageView.tsx';
 
@@ -58,6 +70,13 @@ const CONVERTIBLE: PageStatus[] = ['idle', 'error', 'cancelled'];
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+const timeOf = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const dateOf = (ms: number) =>
+  new Date(ms).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/** Waits this long after the last change before autosaving. */
+const AUTOSAVE_DELAY = 800;
+
 export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -76,6 +95,14 @@ export default function App() {
   const [titleAuto, setTitleAuto] = useState(true);
   const [pageMarkers, setPageMarkers] = useState(true);
 
+  /** A session saved earlier in this browser, waiting for "Restore" or "Start fresh". */
+  const [offer, setOffer] = useState<Session | null>(null);
+  /** Autosave runs only once any saved session has been restored or set aside. */
+  const [autosaveOn, setAutosaveOn] = useState(false);
+  /** "Saved in this browser at 10:42", or why saving isn't possible. */
+  const [saveNote, setSaveNote] = useState('');
+  const [saveFailed, setSaveFailed] = useState(false);
+
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
   const settingsRef = useRef(settings);
@@ -85,9 +112,119 @@ export default function App() {
   const abortRef = useRef<AbortController | null>(null);
   const runningRef = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const projectInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)), [settings]);
   const patchSettings = useCallback((p: Partial<Settings>) => setSettings((s) => ({ ...s, ...p })), []);
+
+  /* ---------- saved work: restore offer + autosave ---------- */
+
+  useEffect(() => {
+    let live = true;
+    loadSession()
+      .then((s) => {
+        if (!live) return;
+        if (s) setOffer(s);
+        else setAutosaveOn(true);
+      })
+      .catch(() => {
+        if (!live) return;
+        setSaveFailed(true);
+        setSaveNote('This browser can’t save work automatically. Use Save project to keep your work.');
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /** Replaces the current pages with a saved session or an opened project. */
+  const applySession = useCallback((s: Session) => {
+    abortRef.current?.abort();
+    pagesRef.current.forEach((p) => URL.revokeObjectURL(p.url));
+    dispatch({ type: 'clear' });
+    dispatch({ type: 'add', pages: s.pages.map((p) => ({ ...p, url: URL.createObjectURL(p.image) })) });
+    setTitle(s.title);
+    setTitleAuto(s.titleAuto);
+    setPageMarkers(s.pageMarkers);
+  }, []);
+
+  const restore = () => {
+    if (!offer) return;
+    applySession(offer);
+    markWritten(offer.pages.map((p) => p.id)); // their images are already stored
+    setStatus(`Restored ${offer.pages.length} page${offer.pages.length > 1 ? 's' : ''}.`);
+    setOffer(null);
+    setAutosaveOn(true);
+  };
+
+  const startFresh = async () => {
+    if (!window.confirm('Start fresh? The work saved in this browser will be deleted.')) return;
+    setOffer(null);
+    try {
+      await clearSession();
+    } catch {
+      /* nothing saved, or storage unavailable */
+    }
+    setAutosaveOn(true);
+  };
+
+  useEffect(() => {
+    if (!autosaveOn) return;
+    const t = setTimeout(async () => {
+      try {
+        if (!pages.length) {
+          await clearSession();
+          setSaveNote('');
+        } else {
+          const at = await saveSession({ title, titleAuto, pageMarkers }, pages);
+          setSaveNote(`Saved in this browser at ${timeOf(at)}.`);
+        }
+        setSaveFailed(false);
+      } catch (e) {
+        setSaveFailed(true);
+        setSaveNote(`Couldn’t save in this browser (${(e as Error).message}). Use Save project to keep your work.`);
+      }
+    }, AUTOSAVE_DELAY);
+    return () => clearTimeout(t);
+  }, [autosaveOn, pages, title, titleAuto, pageMarkers]);
+
+  /* ---------- project files ---------- */
+
+  const saveProject = async () => {
+    try {
+      const json = await projectToJson({ title, titleAuto, pageMarkers }, pagesRef.current);
+      const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+      const a = Object.assign(document.createElement('a'), { href: url, download: projectFileName(title) });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setStatus(`Saved project “${projectFileName(title)}”.`);
+    } catch (e) {
+      setStatus(`Couldn’t save the project: ${(e as Error).message}`);
+    }
+  };
+
+  const openProject = useCallback(
+    async (file: File) => {
+      if (runningRef.current) {
+        setStatus('Stop the conversion before opening a project.');
+        return;
+      }
+      try {
+        const s = projectFromJson(await file.text());
+        if (pagesRef.current.length && !window.confirm('Replace the current pages with this project?')) return;
+        applySession(s);
+        resetWritten(); // its images are not in this browser's storage yet
+        setOffer(null);
+        setAutosaveOn(true);
+        setStatus(`Opened ${file.name} (${s.pages.length} page${s.pages.length > 1 ? 's' : ''}).`);
+      } catch (e) {
+        setStatus(`${file.name}: ${(e as Error).message}`);
+      }
+    },
+    [applySession],
+  );
 
   /* ---------- models ---------- */
 
@@ -117,30 +254,38 @@ export default function App() {
 
   /* ---------- files ---------- */
 
-  const addFiles = useCallback(async (files: File[]) => {
-    for (const file of files) {
-      try {
-        setLoadingFiles(`Reading ${file.name}…`);
-        const loaded = await loadFile(file, (n, total) => setLoadingFiles(`Reading ${file.name}: page ${n} of ${total}`));
-        dispatch({
-          type: 'add',
-          pages: loaded.map((l) => ({
-            ...l,
-            id: uid(),
-            url: URL.createObjectURL(l.image),
-            // Nothing converts until the user asks (one page or all of them).
-            status: 'idle',
-            source: '',
-            figures: [],
-          })),
-        });
-        setTitle((t) => t || file.name.replace(/\.[^.]+$/, ''));
-      } catch (e) {
-        setStatus((e as Error).message);
+  const addFiles = useCallback(
+    async (files: File[]) => {
+      for (const file of files) {
+        // A saved project dropped or chosen with the notes opens as a project.
+        if (/\.json$/i.test(file.name)) {
+          await openProject(file);
+          continue;
+        }
+        try {
+          setLoadingFiles(`Reading ${file.name}…`);
+          const loaded = await loadFile(file, (n, total) => setLoadingFiles(`Reading ${file.name}: page ${n} of ${total}`));
+          dispatch({
+            type: 'add',
+            pages: loaded.map((l) => ({
+              ...l,
+              id: uid(),
+              url: URL.createObjectURL(l.image),
+              // Nothing converts until the user asks (one page or all of them).
+              status: 'idle',
+              source: '',
+              figures: [],
+            })),
+          });
+          setTitle((t) => t || file.name.replace(/\.[^.]+$/, ''));
+        } catch (e) {
+          setStatus((e as Error).message);
+        }
       }
-    }
-    setLoadingFiles('');
-  }, []);
+      setLoadingFiles('');
+    },
+    [openProject],
+  );
 
   // Paste screenshots / images directly.
   useEffect(() => {
@@ -253,6 +398,11 @@ export default function App() {
   }, []);
 
   const clearAll = () => {
+    if (
+      pagesRef.current.some((p) => p.status === 'done') &&
+      !window.confirm('Clear all pages? Your converted pages and edits are removed, including the copy saved in this browser.')
+    )
+      return;
     abortRef.current?.abort();
     pagesRef.current.forEach((p) => URL.revokeObjectURL(p.url));
     dispatch({ type: 'clear' });
@@ -272,6 +422,8 @@ export default function App() {
     setStatus(`Downloaded ${done.length} page${done.length > 1 ? 's' : ''}.`);
   };
 
+  const offerDone = offer ? offer.pages.filter((p) => p.status === 'done').length : 0;
+
   return (
     <>
       <a className="skip-link" href="#main">
@@ -285,6 +437,25 @@ export default function App() {
       </header>
 
       <main id="main">
+        {offer && (
+          <section className="panel restore" aria-labelledby="restore-h">
+            <h2 id="restore-h">Continue where you left off?</h2>
+            <p>
+              Work saved in this browser on {dateOf(offer.savedAt)}: <strong>{offer.title || 'Untitled'}</strong>,{' '}
+              {offer.pages.length} page{offer.pages.length > 1 ? 's' : ''} ({offerDone} converted).
+            </p>
+            <div className="actions">
+              <button type="button" className="primary" onClick={restore}>
+                Restore
+              </button>
+              <button type="button" onClick={startFresh}>
+                Start fresh
+              </button>
+            </div>
+            <p className="hint">Autosave is paused until you choose, so the saved work isn’t overwritten.</p>
+          </section>
+        )}
+
         <SettingsPanel
           settings={settings}
           models={models}
@@ -337,6 +508,23 @@ export default function App() {
                 Stop
               </button>
             )}
+            <button type="button" onClick={saveProject} disabled={!pages.length}>
+              Save project
+            </button>
+            <button type="button" onClick={() => projectInput.current?.click()} disabled={running}>
+              Open project
+            </button>
+            <input
+              ref={projectInput}
+              type="file"
+              accept={`${PROJECT_EXT},.json,application/json`}
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void openProject(f);
+                e.target.value = '';
+              }}
+            />
             <button type="button" onClick={clearAll} disabled={!pages.length || running}>
               Clear all
             </button>
@@ -344,6 +532,7 @@ export default function App() {
           {pages.length > 1 && !running && convertible > 0 && (
             <p className="hint">Or use the Convert button on a page to convert just that page.</p>
           )}
+          {saveNote && <p className={saveFailed ? 'warn' : 'hint save-note'}>{saveNote}</p>}
 
           <p className="status" role="status" aria-live="polite">
             {loadingFiles || status}

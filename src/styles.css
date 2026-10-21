@@ -69,6 +69,12 @@ button[aria-pressed='true']:hover:not(:disabled) { background: #333; }
 .toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: 1rem; }
 .status { min-height: 1.5em; margin: .5rem 0 0; color: var(--muted); }
 
+/* Restore offer and save status (1.8) */
+.restore { border-left: 4px solid var(--accent); }
+.restore h2 { margin-bottom: .35rem; }
+.restore p { margin: 0 0 .75rem; }
+.save-note { margin-top: .5rem; }
+
 .page-head { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem 1rem; margin-bottom: .75rem; }
 .page-head h3 { margin: 0; font-size: 1.05rem; flex: 1 1 16rem; overflow-wrap: anywhere; }
 .actions { display: flex; flex-wrap: wrap; gap: .4rem; }
