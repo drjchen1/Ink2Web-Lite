@@ -349,20 +349,104 @@ export function trimRepetition(text: string): string {
   return text;
 }
 
-const FIGURE_DESC = /\[\[\s*FIGURE\s*:\s*([\s\S]*?)\]\]/gi;
+/**
+ * A figure description is always on one line: [[FIGURE: graph of u(t)]].
+ *
+ * Small models sometimes drop a closing bracket ("[[FIGURE: graph of u(t)]").
+ * Matching up to the next "]]" anywhere would then swallow the following lines
+ * (often the sentence written right after the drawing) into the alt text. So a
+ * description ends at "]]" on its own line, or at the end of that line, with one
+ * stray "]" removed.
+ */
+const FIGURE_START = /\[\[\s*FIGURE\s*:/gi;
 export const MARKER_LINE = /^\s*\[\[\s*FIGURE\s+(\d+)\s*\]\]\s*$/i;
+
+/** Words that end a quoted-text clause: "written beside it", "next to the graph", ... */
+const PLACE =
+  String.raw`(?:\s*(?:is\s+|are\s+)?(?:written|shown|placed|located|appearing|noted)?\s*(?:beside|next\s+to|to\s+the\s+(?:right|left)\s+of|right\s+of|left\s+of|below|above|under|near|alongside)\s+(?:it|the\s+(?:graph|figure|drawing|diagram|plot|sketch|curve|region))?)?`;
+/** Words that introduce it: ", with text", "and the text", "with the note", ... */
+const INTRO = String.raw`(?:[,;]?\s*(?:and|with)?\s*(?:the\s+)?(?:handwritten\s+)?(?:text|note|sentence|words|caption|annotation)\s*(?:reading|that\s+reads|saying|:)?\s*)`;
+const QUOTED = String.raw`(?:"([^"]+)"|“([^”]+)”)`;
+
+/**
+ * Small models sometimes copy the sentence written beside a drawing into the
+ * drawing's description, in quotes:
+ *   graph ..., with text "$\int_a^b f(x)\,dx$ is area of the shaded region." written beside it
+ * That sentence belongs to the notes (and alt text should describe the drawing).
+ * Quoted text that reads like a sentence (several words, or math with words) is
+ * moved out; short quoted labels on the drawing ("labeled \"y\"") stay.
+ */
+export function splitQuotedText(desc: string): { desc: string; moved: string[] } {
+  const moved: string[] = [];
+  const isSentence = (q: string) => {
+    const words = q.replace(/\$[^$]*\$/g, ' x ').trim().split(/\s+/).filter(Boolean);
+    return words.length >= 4 || (q.includes('$') && words.length >= 3);
+  };
+  const re = new RegExp(`${INTRO}?${QUOTED}${PLACE}`, 'gi');
+  const out = desc.replace(re, (whole, a?: string, b?: string) => {
+    const q = (a ?? b ?? '').trim();
+    if (!isSentence(q)) return whole;
+    moved.push(q);
+    return '';
+  });
+  return {
+    desc: out.replace(/\s+([,.;])/g, '$1').replace(/^[,;\s]+|[,;\s]+$/g, '').replace(/\s{2,}/g, ' ').trim(),
+    moved,
+  };
+}
 
 /**
  * Replaces [[FIGURE: description]] with numbered markers [[FIGURE n]] on their own
- * lines and returns the descriptions in order.
+ * lines and returns the descriptions in order. Text after the description on the
+ * same line, and sentences the model quoted inside the description, are kept as
+ * text after the figure.
  */
 export function extractFigures(md: string): { source: string; descriptions: string[] } {
   const descriptions: string[] = [];
-  const source = md.replace(FIGURE_DESC, (_, d: string) => {
-    descriptions.push(d.replace(/\s+/g, ' ').trim() || 'Hand-drawn figure');
-    return `\n\n[[FIGURE ${descriptions.length}]]\n\n`;
-  });
-  return { source: tidy(source), descriptions };
+  let out = '';
+  let last = 0;
+  let m: RegExpExecArray | null;
+  FIGURE_START.lastIndex = 0;
+  while ((m = FIGURE_START.exec(md))) {
+    const from = m.index + m[0].length;
+    const nl = md.indexOf('\n', from);
+    const lineEnd = nl < 0 ? md.length : nl;
+    // The closing "]]" on this line, skipping brackets inside the description ("on [0, 1]").
+    let close = -1;
+    for (let i = from, depth = 0; i < lineEnd; i++) {
+      if (md[i] === '[') depth++;
+      else if (md[i] === ']') {
+        if (depth > 0) depth--;
+        else if (md[i + 1] === ']') {
+          close = i;
+          break;
+        }
+      }
+    }
+    let desc: string;
+    let next: number;
+    if (close >= 0) {
+      desc = md.slice(from, close);
+      next = close + 2;
+    } else {
+      // Missing "]]": the description is the rest of the line, minus a stray "]"
+      // (only if it is unbalanced, so "on [0, 1]" keeps its bracket).
+      desc = md.slice(from, lineEnd).trimEnd();
+      const opens = (desc.match(/\[/g) ?? []).length;
+      const closes = (desc.match(/\]/g) ?? []).length;
+      if (desc.endsWith(']') && closes > opens) desc = desc.slice(0, -1);
+      next = lineEnd;
+    }
+    const split = splitQuotedText(desc.replace(/\s+/g, ' ').trim());
+    descriptions.push(split.desc || 'Hand-drawn figure');
+    const after = split.moved.length ? `${split.moved.join('\n')}\n` : '';
+    out += `${md.slice(last, m.index)}\n\n[[FIGURE ${descriptions.length}]]\n\n${after}`;
+    while (md[next] === ' ' || md[next] === '\t') next++; // text after it starts its own line
+    last = next;
+    FIGURE_START.lastIndex = next;
+  }
+  out += md.slice(last);
+  return { source: tidy(out), descriptions };
 }
 
 const tidy = (s: string) => s.replace(/\n{3,}/g, '\n\n').trim();

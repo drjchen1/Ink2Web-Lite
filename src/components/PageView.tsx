@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Box, Figure, FigureAlign, Page } from '../types.ts';
-import { pageHtml } from '../lib/exportHtml.ts';
+import { pageHtml, wrapEndLines } from '../lib/exportHtml.ts';
+import { altTextIssue, blockText, commitBlock, moveAltToNotes, pageBlocks, splitBlocks, type Block } from '../lib/editing.ts';
 import { latexWarnings } from '../lib/markdown.ts';
 import { cropFigure, pageLayout, snapToInk } from '../lib/images.ts';
 import { defaultLayout, overlapRatio } from '../lib/layout.ts';
@@ -8,6 +9,8 @@ import { besideUnitCount, placeOne } from '../lib/placement.ts';
 import { markerUnitIndex, moveMarker, nextFigureId, sourceUnits } from '../lib/transcript.ts';
 import { CropCanvas } from './CropCanvas.tsx';
 import { Preview } from './Preview.tsx';
+import { BlockEditor } from './BlockEditor.tsx';
+import { MarkupToolbar } from './MarkupToolbar.tsx';
 
 interface Props {
   page: Page;
@@ -41,6 +44,15 @@ const ALIGNS: { value: FigureAlign; label: string }[] = [
   { value: 'right', label: 'Right' },
 ];
 
+/** The block open for editing in place. */
+interface Editing {
+  i: number;
+  block: Block;
+  /** Its source when opened (to write it back even if the page shifted). */
+  original: string;
+  text: string;
+}
+
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -55,6 +67,12 @@ export const PageView = memo(function PageView(props: Props) {
   const [tab, setTab] = useState<'preview' | 'edit'>('preview');
   const [active, setActive] = useState<number | null>(null);
   const [note, setNote] = useState('');
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const srcRef = useRef<HTMLTextAreaElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
+  /** Block to focus after the preview re-renders (returning from the block editor). */
+  const focusBlock = useRef<number | null>(null);
+  const hintId = `edit-hint-${page.id}`;
   const headingId = `page-${page.id}-h`;
   const working = page.status === 'transcribing' || page.status === 'locating';
   const hasResult = !!page.source || page.figures.length > 0;
@@ -64,10 +82,94 @@ export const PageView = memo(function PageView(props: Props) {
   latest.current = page;
 
   const source = useDebounced(page.source, 250);
-  const html = useMemo(() => pageHtml({ ...page, source }, index + 1), [page.figures, source, index]);
+  const pb = useMemo(() => pageBlocks({ source, figures: page.figures }, index + 1, hintId), [page.figures, source, index, hintId]);
+  // Under "Edit source" the preview isn't clickable, so it's rendered exactly like the export.
+  const plainHtml = useMemo(
+    () => (tab === 'edit' ? pageHtml({ ...page, source }, index + 1) : ''),
+    [tab, page.figures, source, index],
+  );
   const warnings = useMemo(() => latexWarnings(source), [source]);
   const positions = useMemo(() => markerUnitIndex(page.source), [page.source]);
   const unitCount = useMemo(() => sourceUnits(page.source).length, [page.source]);
+
+  // A conversion replaces the page, so close any open block.
+  useEffect(() => {
+    if (working) setEditing(null);
+  }, [working]);
+
+  // Return keyboard focus to the block that was just edited.
+  useEffect(() => {
+    const i = focusBlock.current;
+    if (i === null || editing) return;
+    focusBlock.current = null;
+    rootRef.current?.querySelector<HTMLElement>(`[data-b="${i}"]`)?.focus();
+  }, [pb, editing]);
+
+  /** Writes the open block back into the page and closes it; returns the new source. */
+  const commit = (): string => {
+    const cur = latest.current.source;
+    if (!editing) return cur;
+    const next = editing.text === editing.original ? cur : commitBlock(cur, editing.block, editing.original, editing.text);
+    if (next !== cur) onUpdate(page.id, { source: next });
+    setEditing(null);
+    return next;
+  };
+
+  /** Opens block i (of the page as currently rendered) for editing, or a figure's card. */
+  const openBlock = (i: number) => {
+    let src = latest.current.source;
+    let target = i;
+    if (editing) {
+      if (i === editing.i) return;
+      // Save the open block first; blocks after it may shift if it grew or shrank.
+      const grew = (editing.text.trim() ? splitBlocks(editing.text).length : 0) - 1;
+      src = commit();
+      if (i > editing.i) target = i + grew;
+    }
+    const blocks = splitBlocks(src, wrapEndLines(src, latest.current.figures));
+    const b = blocks[target];
+    if (!b) return;
+    if (b.fig !== undefined) {
+      setActive(b.fig);
+      document.getElementById(`alt-${page.id}-${b.fig}`)?.focus();
+      setNote(`Figure ${b.fig} selected. Edit its alt text and layout below.`);
+      return;
+    }
+    const text = blockText(src, b);
+    setEditing({ i: target, block: b, original: text, text });
+  };
+
+  const finishEdit = () => {
+    if (!editing) return;
+    focusBlock.current = editing.i;
+    commit();
+  };
+
+  const cancelEdit = () => {
+    if (!editing) return;
+    focusBlock.current = editing.i;
+    setEditing(null);
+  };
+
+  /**
+   * Moves the selected part of a figure's alt text (or all of it, with no selection)
+   * into the notes right after the figure (1.9.4).
+   */
+  const moveToNotes = (f: Figure) => {
+    commit();
+    const ta = document.getElementById(`alt-${page.id}-${f.id}`) as HTMLTextAreaElement | null;
+    const r = moveAltToNotes(latest.current.source, f.id, f.alt, ta?.selectionStart ?? 0, ta?.selectionEnd ?? 0);
+    if (!r.moved) return;
+    onUpdate(page.id, {
+      source: r.source,
+      figures: latest.current.figures.map((x) =>
+        // The moved sentence was written beside the drawing: keep it beside a wrapped figure.
+        x.id === f.id ? { ...x, alt: r.alt, besideLines: x.wrap ? x.besideLines + 1 : x.besideLines } : x,
+      ),
+    });
+    setNote(`Moved to the notes after figure ${f.id}: ${r.moved}`);
+    requestAnimationFrame(() => ta?.focus());
+  };
 
   const convert = () => {
     if (hasResult && !window.confirm(`Convert page ${index + 1} again? This replaces your edits on this page.`)) return;
@@ -148,7 +250,7 @@ export const PageView = memo(function PageView(props: Props) {
     );
 
   return (
-    <article className="page" aria-labelledby={headingId}>
+    <article className="page" aria-labelledby={headingId} ref={rootRef}>
       <header className="page-head">
         <h3 id={headingId}>
           {index + 1}. {page.label}
@@ -209,7 +311,14 @@ export const PageView = memo(function PageView(props: Props) {
                 <button type="button" aria-pressed={tab === 'preview'} onClick={() => setTab('preview')}>
                   Preview
                 </button>
-                <button type="button" aria-pressed={tab === 'edit'} onClick={() => setTab('edit')}>
+                <button
+                  type="button"
+                  aria-pressed={tab === 'edit'}
+                  onClick={() => {
+                    commit();
+                    setTab('edit');
+                  }}
+                >
                   Edit source
                 </button>
               </div>
@@ -217,7 +326,13 @@ export const PageView = memo(function PageView(props: Props) {
               {tab === 'edit' && (
                 <div className="editor">
                   <label htmlFor={`src-${page.id}`}>Transcription (Markdown with $LaTeX$; figures are [[FIGURE n]])</label>
+                  <MarkupToolbar
+                    target={srcRef}
+                    onChange={(v) => onUpdate(page.id, { source: v })}
+                    label={`Markup for page ${index + 1}`}
+                  />
                   <textarea
+                    ref={srcRef}
                     id={`src-${page.id}`}
                     value={page.source}
                     spellCheck={false}
@@ -234,7 +349,43 @@ export const PageView = memo(function PageView(props: Props) {
                 </ul>
               )}
 
-              <Preview html={html} label={`Preview of page ${index + 1}`} />
+              {tab === 'preview' ? (
+                <>
+                  <p id={hintId} className="hint edit-hint">
+                    Click a paragraph, equation, or figure to edit it (or Tab to it and press Enter).
+                  </p>
+                  {editing ? (
+                    <>
+                      {editing.i > 0 && (
+                        <Preview
+                          html={pb.html.slice(0, editing.i).join('')}
+                          label={`Preview of page ${index + 1}, before the part being edited`}
+                          onBlock={openBlock}
+                        />
+                      )}
+                      <BlockEditor
+                        text={editing.text}
+                        onText={(text) => setEditing((e) => (e ? { ...e, text } : e))}
+                        onDone={finishEdit}
+                        onCancel={cancelEdit}
+                        figures={page.figures}
+                        pageNo={index + 1}
+                      />
+                      {editing.i < pb.html.length - 1 && (
+                        <Preview
+                          html={pb.html.slice(editing.i + 1).join('') + pb.tail}
+                          label={`Preview of page ${index + 1}, after the part being edited`}
+                          onBlock={openBlock}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <Preview html={pb.html.join('') + pb.tail} label={`Preview of page ${index + 1}`} onBlock={openBlock} />
+                  )}
+                </>
+              ) : (
+                <Preview html={plainHtml} label={`Preview of page ${index + 1}`} />
+              )}
             </>
           )}
 
@@ -248,6 +399,7 @@ export const PageView = memo(function PageView(props: Props) {
                 const pos = positions.get(f.id);
                 const pid = `${page.id}-${f.id}`;
                 const canWrap = f.align !== 'center';
+                const altIssue = altTextIssue(f.alt);
                 return (
                   <div key={f.id} className={`fig${f.id === active ? ' on' : ''}`}>
                     <div className="fig-thumb">{f.src ? <img src={f.src} alt="" /> : <span>…</span>}</div>
@@ -256,6 +408,7 @@ export const PageView = memo(function PageView(props: Props) {
                         <strong>Figure {f.id}</strong>
                         {f.autoDetected && <span className="badge queued">Found by detector</span>}
                         {f.needsReview && <span className="badge error">Check</span>}
+                        {altIssue && <span className="badge error">Check alt text</span>}
                         {pos === undefined && <span className="badge queued">Not placed in text</span>}
                       </div>
 
@@ -265,8 +418,27 @@ export const PageView = memo(function PageView(props: Props) {
                         rows={2}
                         value={f.alt}
                         aria-invalid={!f.alt.trim()}
+                        aria-describedby={altIssue ? `altissue-${pid}` : undefined}
                         onChange={(e) => patchFigure(f.id, { alt: e.target.value })}
                       />
+                      {altIssue && (
+                        <p id={`altissue-${pid}`} className="warn alt-issue">
+                          This alt text may include writing from next to the drawing. {altIssue} Select that part and
+                          click <strong>Move to notes</strong>.
+                        </p>
+                      )}
+                      <div className="actions alt-actions">
+                        <button
+                          type="button"
+                          // Keep the selection in the alt text box when clicking.
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => moveToNotes(f)}
+                          disabled={!f.alt.trim()}
+                          title="Move the selected alt text (or all of it, if nothing is selected) into the notes after this figure"
+                        >
+                          Move to notes
+                        </button>
+                      </div>
                       <label htmlFor={`cap-${pid}`}>Caption (optional, visible)</label>
                       <input
                         id={`cap-${pid}`}

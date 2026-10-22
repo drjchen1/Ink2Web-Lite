@@ -12,6 +12,10 @@
  * notes. All HTML structure and accessibility markup is generated deterministically
  * in code (markdown.ts / exportHtml.ts), never by the model.
  *
+ * The rule that writing beside a drawing is notes, not part of the FIGURE description,
+ * is spelled out (and shown in the example) because small models otherwise copy that
+ * text into the alt text.
+ *
  * Small models copy the example's patterns, so anything in it can leak into
  * transcriptions. The example therefore uses content unlikely to appear in real notes,
  * and the rules say to use each mark only where the author drew it.
@@ -44,7 +48,8 @@ Other rules:
    - A note in a different ink color: [[note red: term | note]]
 4. Copy these only where the author drew them: a box around a formula or result: \\boxed{...}. A column of dots for skipped steps: its own line $$\\vdots$$
 5. Underlined words: <u>words</u>. Words in a different ink color: [[red: words]] (or green, orange, purple, blue).
-6. Every drawing (graph, diagram, sketch) gets its own line, without transcribing the drawing: [[FIGURE: short plain-words description]]. Text written beside a drawing goes on the lines after it.
+6. Every drawing (graph, diagram, sketch) gets its own line, without transcribing the drawing: [[FIGURE: short plain-words description of the drawing only]].
+   Writing next to, below, or above a drawing (sentences, formulas, explanations) is NOT part of the drawing. Never put it in the FIGURE description. Transcribe it as normal notes on the lines right after the [[FIGURE: ...]] line. Only labels on the drawing itself (axis names, points like a and b) belong in the description.
    A circle, box, or bracket drawn around words is NOT a drawing: transcribe the words and ignore the mark.
 7. Write [illegible] for anything you cannot read. Skip crossed-out work.
 
@@ -58,6 +63,7 @@ $$\\vdots$$
 $$\\boxed{S = \\frac{1}{1 - q}}$$
 the series <u>converges</u> [[red: only if $|q| < 1$]]
 [[FIGURE: number line with points 0 and 1 marked]]
+the distance from $0$ to $1$ is one unit
 
 Output only the transcription.`;
 

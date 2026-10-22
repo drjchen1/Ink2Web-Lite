@@ -73,10 +73,11 @@ export function figureHtml(fig: Figure | undefined, pageNo: number): string {
 }
 
 /**
- * For each wrapped figure, ends the wrap after its "beside" lines: text after
- * that point starts below the figure, as in the notes.
+ * For each wrapped figure, the source line after which its wrap ends: text after
+ * that point starts below the figure, as in the notes. (Shared with the editable
+ * preview, which splits the page into blocks at these lines.)
  */
-export function withWrapEnds(source: string, figures: Figure[]): string {
+export function wrapEndLines(source: string, figures: Figure[]): Set<number> {
   const lines = source.split('\n');
   const units = sourceUnits(source);
   const clearAfter = new Set<number>(); // line index after which to clear
@@ -93,8 +94,17 @@ export function withWrapEnds(source: string, figures: Figure[]): string {
       }
     }
   });
+  return clearAfter;
+}
+
+/** The source with a [[CLEAR]] marker after each wrapped figure's "beside" lines. */
+export function withWrapEnds(source: string, figures: Figure[]): string {
+  const clearAfter = wrapEndLines(source, figures);
   if (!clearAfter.size) return source;
-  return lines.flatMap((l, i) => (clearAfter.has(i) ? [l, '', CLEAR_MARK, ''] : [l])).join('\n');
+  return source
+    .split('\n')
+    .flatMap((l, i) => (clearAfter.has(i) ? [l, '', CLEAR_MARK, ''] : [l]))
+    .join('\n');
 }
 
 export function pageHtml(page: Page, pageNo: number, ctx?: RenderContext): string {

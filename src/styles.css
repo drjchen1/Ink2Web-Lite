@@ -142,4 +142,27 @@ p.warn { padding-left: .75rem; }
 .check { display: block; margin-top: .4rem; }
 @media (max-width: 520px) { .fig { grid-template-columns: minmax(0, 1fr); } .fig-thumb { max-width: 12rem; } }
 
+/* Click-to-edit preview and markup toolbar (1.9) */
+.edit-hint { margin: 0 0 .5rem; }
+.doc.editable .blk { border-radius: 4px; cursor: pointer; outline: 1px solid transparent; outline-offset: 3px; }
+.doc.editable .blk:hover { outline-color: #9db6cf; background: #f5f9fc; }
+.doc.editable .blk:focus-visible { outline: 3px solid var(--accent); }
+.doc .blk > :last-child { margin-bottom: 1rem; }
+.block-editor { border: 2px solid var(--accent); border-radius: 8px; padding: .75rem; margin: .5rem 0 1rem; background: #fbfdff; }
+.block-editor-label { display: block; font-weight: 600; margin-bottom: .4rem; }
+.block-editor textarea { font: .9rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: .4rem 0; }
+.block-editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+.block-editor-actions .hint { margin: 0; }
+.block-editor .doc { background: #fff; }
+.markup { display: flex; flex-wrap: wrap; gap: .3rem; margin: .25rem 0 .4rem; }
+.markup .mk { min-height: 2rem; padding: .2rem .6rem; font-size: .9rem; }
+.markup .mk-math, .markup .mk-display { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.markup .mk-underline { text-decoration: underline; font-weight: 600; }
+.markup .mk-heading { font-weight: 700; }
+.markup select { width: auto; padding: .25rem .5rem; font-size: .9rem; }
+
+/* Alt text check (1.9.4) */
+.alt-issue { margin: 0 0 .5rem; }
+.alt-actions { margin: -.25rem 0 .6rem; }
+
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
