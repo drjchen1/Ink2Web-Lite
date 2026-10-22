@@ -165,4 +165,15 @@ p.warn { padding-left: .75rem; }
 .alt-issue { margin: 0 0 .5rem; }
 .alt-actions { margin: -.25rem 0 .6rem; }
 
+/* Prompt inspector (1.9.5) */
+.prompt-inspector { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .75rem; }
+.prompt-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.prompt-title { font-weight: 600; }
+.prompt-text { font: .85rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: .5rem 0; }
+.prompt-inspector .warn ul { margin: .25rem 0 0; padding-left: 1.25rem; }
+.prompt-inspector .warn p { margin: 0; }
+.prompt-inspector .actions { align-items: center; margin: .5rem 0; }
+.custom-prompt-banner { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .75rem 0 0; }
+.custom-prompt-banner button { margin-left: auto; }
+
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }

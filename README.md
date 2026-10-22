@@ -10,7 +10,7 @@ Everything runs on your own computer. The app uses a vision model running locall
 
 Ink2Web Lite is an **assistant, not a one-click converter**: the model does a first transcription, and you review and lightly edit it before exporting. Click any part of the preview to fix it in place; your work is saved as you go.
 
-Version 1.9.4. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 1.9.5. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
@@ -30,11 +30,20 @@ Other vision models may work but aren't tested. Each model has its own quirks, a
 - **`src/lib/prompts.ts`**: the transcription prompt. Keep it short; every added rule competes with the important ones.
 - **`src/lib/transcript.ts`**: the clean-up step that repairs model output after transcription. This is the better place for model-specific fixes, because it costs nothing in prompt length and helps every model.
 
+To try a prompt change without touching the code, use **Model › Advanced › Transcription prompt** in the app: it shows the prompt, lets you edit it for the next conversions, warns if a format the app depends on is missing, and copies your version for pasting into `prompts.ts`. The edit is temporary and ends when you reload.
+
 Run `npm test` after changes, and compare a few pages you know well before and after.
 
 ---
 
 ## What's new
+
+### 1.9.5
+- **Prompt inspector** under **Model › Advanced**: see the exact transcription prompt sent to the model, and try an edited version on the next conversions.
+  - **Temporary by design:** the edit isn't saved and ends when you reload the app. **Reset to default** or **Use the default prompt** switches back at any time.
+  - **Always visible when active:** a *Custom prompt in use* banner sits above **Convert all**.
+  - **Format check:** a warning appears if the edited prompt no longer asks for `[[FIGURE: …]]`, `[[note: term | words]]`, or `$…$` math, which the clean-up code depends on.
+  - **Copy prompt** for pasting into `src/lib/prompts.ts` or a GitHub issue.
 
 ### 1.9.4
 - **Alt text check.** A figure whose alt text looks like it holds writing from next to the drawing (math, "written beside it", "with text …", a long quote) gets a **Check alt text** badge and a short hint.
@@ -210,10 +219,11 @@ src/
     Preview.tsx         renders and typesets HTML; reports clicks on blocks
     CropCanvas.tsx      figure crop boxes on the page image
     SettingsPanel.tsx   model and settings
+    PromptInspector.tsx view and temporarily change the transcription prompt
   lib/
     ollama.ts           talks to the local Ollama server
     prompts.ts          instructions given to the model
-    pipeline.ts         converts one page from start to finish
+    pipeline.ts         converts one page from start to finish (default or custom prompt)
     layout.ts           finds drawings and text lines in the ink
     placement.ts        decides where figures go in the text
     transcript.ts       cleans model output; figure lines; moves drawn notes out

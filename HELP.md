@@ -1,6 +1,6 @@
 # Ink2Web Lite: User Guide
 
-This guide covers everyday use of Ink2Web Lite 1.9.4. For installation, see [README.md](README.md).
+This guide covers everyday use of Ink2Web Lite 1.9.5. For installation, see [README.md](README.md).
 
 > **Your work is saved as you go**, in this browser on this computer. To keep a copy you can move or back up, use **Save project**. See [Saving your work](#8-saving-your-work).
 
@@ -81,6 +81,24 @@ When the model and the app's drawing detector disagree on how many figures a pag
 
 - **Ollama URL:** leave this as `/ollama` unless Ollama runs somewhere unusual.
 - **Context window (num_ctx):** leave it at 8192; 4096 saves memory on an 8 GB machine.
+- **Transcription prompt:** the instructions the model gets for each page. See [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt).
+
+#### Inspecting or changing the prompt
+
+Under **Advanced › Transcription prompt**, click **Inspect or change** to see the exact prompt sent to the model with each page. You can also try an edited version, for example when testing a different model:
+
+1. Edit the text.
+2. Click **Use this prompt**. Pages you convert from now on use it; pages already converted keep their text.
+3. Compare with **Convert again** on a page you know well.
+
+Things to know:
+
+- **It's temporary.** The edited prompt isn't saved, and it ends when you reload the app. **Reset to default** (or **Use the default prompt** in the banner) switches back at any time.
+- **You'll always see when it's on:** a **Custom prompt in use** banner appears above **Convert all**, and the prompt shows a **Custom (temporary)** badge.
+- **Keep the formats.** The app's clean-up depends on the prompt asking for `[[FIGURE: …]]` lines, `[[note: term | words]]` lines, and math in `$…$`. If an edit drops one, a warning explains what will stop working.
+- **To keep a change for good**, click **Copy prompt**, paste it into `src/lib/prompts.ts`, and run `npm test`.
+
+Ink2Web Lite is tuned for the default prompt; edited prompts are for experiments.
 
 Your settings are remembered. Settings can't be changed while a page is converting.
 
@@ -372,6 +390,7 @@ These come from what small vision models can and can't do reliably. Each has a q
 | **"Cannot reach Ollama"** | Open the Ollama app (or run `ollama serve`), then click **Refresh**. |
 | **No models in the list** | Install one: `ollama pull qwen3-vl:4b-instruct`, then **Refresh**. |
 | **A model is very slow, or returns empty or cut-off text** | It's probably a thinking build. Use `qwen3-vl:4b-instruct`. |
+| **Results suddenly look different** | Check for the **Custom prompt in use** banner above **Convert all**. Click **Use the default prompt**, then **Convert again**. |
 | **The app seems to behave like an older version** | Check `grep version package.json`, restart `npm run dev`, and hard-refresh the browser tab (⌘⇧R). |
 | **A sentence from the notes is missing, and it's in a figure's alt text** | Select it in the alt text and click **Move to notes**. |
 | **A sentence from the notes is missing everywhere** | The model skipped it. Click the part before it and type it in, or try **Convert again** (with **High detail**). |
@@ -401,6 +420,9 @@ Yes. Reopen it and choose **Restore**, or open a project file.
 
 **Why does writing next to a figure sometimes end up in its alt text?**
 The model is asked to describe each drawing and to keep the writing beside it in the notes, but small models sometimes include that writing in the description anyway. The app fixes the most common forms automatically and flags the rest with **Check alt text**; **Move to notes** fixes them in one click.
+
+**Can I change what the model is asked to do?**
+Yes, for experiments: **Model › Advanced › Transcription prompt** shows the prompt and lets you try an edited version until you reload the app. See [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt).
 
 **Can I edit the rendered math directly, like in a word processor?**
 Not quite: clicking opens that part's source, with a live preview right underneath and a toolbar for the common marks. This keeps the export exact and predictable.

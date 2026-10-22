@@ -94,6 +94,13 @@ export default function App() {
   /** True while the title is the file name (until the user types their own). */
   const [titleAuto, setTitleAuto] = useState(true);
   const [pageMarkers, setPageMarkers] = useState(true);
+  /**
+   * Temporary replacement for the transcription prompt (Advanced settings). Kept
+   * only in memory: it's gone after a reload, and isn't saved with the work.
+   */
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
+  const customPromptRef = useRef(customPrompt);
+  customPromptRef.current = customPrompt;
 
   /** A session saved earlier in this browser, waiting for "Restore" or "Start fresh". */
   const [offer, setOffer] = useState<Session | null>(null);
@@ -336,7 +343,7 @@ export default function App() {
           const result = await convertPage(next, s, thinking, ac.signal, (p) => {
             if (p.phase === 'locating') dispatch({ type: 'update', id: next.id, patch: { status: 'locating' } });
             else setLive({ id: next.id, text: p.text ?? '' });
-          });
+          }, customPromptRef.current);
           dispatch({ type: 'update', id: next.id, patch: { ...result, status: 'done' } });
           setStatus(`Page ${n} done in ${((performance.now() - started) / 1000).toFixed(0)} s.`);
         } catch (e) {
@@ -464,6 +471,8 @@ export default function App() {
           disabled={running}
           onChange={patchSettings}
           onRefresh={refreshModels}
+          customPrompt={customPrompt}
+          onCustomPrompt={setCustomPrompt}
         />
 
         <section className="panel" aria-labelledby="upload-h">
@@ -499,6 +508,15 @@ export default function App() {
             <p className="hint">PDF, PNG, JPEG, WebP. Nothing leaves your computer.</p>
           </div>
 
+          {customPrompt !== null && (
+            <p className="warn custom-prompt-banner" role="status">
+              <strong>Custom prompt in use.</strong> Pages you convert now use your edited prompt (Model › Advanced).
+              It isn’t saved and ends when you reload the app.{' '}
+              <button type="button" onClick={() => setCustomPrompt(null)} disabled={running}>
+                Use the default prompt
+              </button>
+            </p>
+          )}
           <div className="toolbar">
             <button type="button" className="primary" onClick={convertAll} disabled={!convertible || !settings.model}>
               Convert all{convertible ? ` (${convertible} page${convertible > 1 ? 's' : ''})` : ''}

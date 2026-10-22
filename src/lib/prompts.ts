@@ -107,3 +107,36 @@ export const LOCATE_SCHEMA = {
 export const DESCRIBE_USER = `This image is a hand-drawn figure cut from a page of math notes.
 Describe it in one sentence for a blind student: what kind of drawing it is, what it shows, and the labels written on it.
 Use plain words, no LaTeX. Output only the sentence.`;
+
+/* ---------------------------------------------------------------------------------
+ * Custom prompt (1.9.5): checks that an edited prompt still asks for the formats
+ * the clean-up code depends on.
+ * ------------------------------------------------------------------------------- */
+
+export interface PromptIssue {
+  /** What the clean-up step needs. */
+  need: string;
+  /** What breaks without it. */
+  effect: string;
+}
+
+/**
+ * Warnings for an edited transcription prompt. Each one names a format that the
+ * clean-up and rendering code relies on but the prompt no longer mentions.
+ */
+export function promptIssues(prompt: string): PromptIssue[] {
+  const p = prompt;
+  const issues: PromptIssue[] = [];
+  if (!p.trim()) return [{ need: 'a prompt', effect: 'The model gets no instructions at all.' }];
+  if (!/\[\[\s*FIGURE\s*:/i.test(p))
+    issues.push({ need: '[[FIGURE: …]] lines for drawings', effect: 'Figures the model sees won’t be described or matched; only the ink detector will find them.' });
+  if (!/\[\[\s*note\b[^\]]*\|/i.test(p))
+    issues.push({ need: '[[note: term | words]] lines for arrow and brace notes', effect: 'Notes won’t become “where…” sentences.' });
+  if (!/\$[^$\s][^$]*\$/.test(p))
+    issues.push({ need: 'math in $…$ and $$…$$', effect: 'Math may come back as plain text, which renders poorly and isn’t read as math by screen readers.' });
+  return issues;
+}
+
+/** True when `prompt` is the built-in transcription prompt (ignoring surrounding whitespace). */
+export const isDefaultPrompt = (prompt: string) => prompt.trim() === TRANSCRIBE_USER.trim();
+

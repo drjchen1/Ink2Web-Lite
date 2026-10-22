@@ -1,4 +1,5 @@
 import type { ModelInfo, Settings } from '../types.ts';
+import { PromptInspector } from './PromptInspector.tsx';
 
 interface Props {
   settings: Settings;
@@ -8,6 +9,9 @@ interface Props {
   disabled: boolean;
   onChange: (patch: Partial<Settings>) => void;
   onRefresh: () => void;
+  /** Temporary transcription prompt (null = built-in). */
+  customPrompt: string | null;
+  onCustomPrompt: (prompt: string | null) => void;
 }
 
 const DETAIL = [
@@ -16,7 +20,17 @@ const DETAIL = [
   { value: 1792, label: 'High detail (1792 px)' },
 ];
 
-export function SettingsPanel({ settings, models, modelError, loadingModels, disabled, onChange, onRefresh }: Props) {
+export function SettingsPanel({
+  settings,
+  models,
+  modelError,
+  loadingModels,
+  disabled,
+  onChange,
+  onRefresh,
+  customPrompt,
+  onCustomPrompt,
+}: Props) {
   const selected = models.find((m) => m.name === settings.model);
 
   return (
@@ -126,6 +140,7 @@ export function SettingsPanel({ settings, models, modelError, loadingModels, dis
             <p className="hint">Must fit the image plus the transcription. 8192 is enough for most pages; 4096 saves memory on 8 GB Macs.</p>
           </div>
         </div>
+        <PromptInspector customPrompt={customPrompt} onCustomPrompt={onCustomPrompt} disabled={disabled} />
       </details>
     </section>
   );

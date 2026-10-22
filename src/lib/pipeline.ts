@@ -41,6 +41,8 @@ export async function convertPage(
   thinking: boolean,
   signal: AbortSignal,
   onProgress: (p: PageProgress) => void,
+  /** A temporary replacement for the transcription prompt (Advanced settings), or null. */
+  customPrompt: string | null = null,
 ): Promise<{ source: string; figures: Figure[] }> {
   const base = { baseUrl: settings.baseUrl, model: settings.model, disableThinking: thinking, signal };
   const layoutPromise = pageLayout(page.image);
@@ -54,7 +56,7 @@ export async function convertPage(
       { role: 'system', content: TRANSCRIBE_SYSTEM },
       {
         role: 'user',
-        content: transcribePrompt(),
+        content: customPrompt ?? transcribePrompt(),
         images: [await modelImage(page.image, settings.detail, settings.enhance)],
       },
     ],
