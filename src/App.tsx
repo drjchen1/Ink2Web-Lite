@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import type { ModelInfo, Page, PageStatus, Settings } from './types.ts';
+import type { Box, ModelInfo, Page, PageStatus, Settings } from './types.ts';
 import { listModels } from './lib/ollama.ts';
 import { ACCEPT, loadFile } from './lib/images.ts';
-import { convertPage } from './lib/pipeline.ts';
+import { convertPage, rereadRegion } from './lib/pipeline.ts';
 import { buildDocument, downloadHtml, looksLikeFileName } from './lib/exportHtml.ts';
 import {
   PROJECT_EXT,
@@ -397,6 +397,13 @@ export default function App() {
   };
 
   const onUpdate = useCallback((id: string, patch: Partial<Page>) => dispatch({ type: 'update', id, patch }), []);
+  /** Re-reads one region of a page with the current model (2.0). Changes nothing by itself. */
+  const onReread = useCallback((page: Page, box: Box, signal: AbortSignal) => {
+    const s = settingsRef.current;
+    if (!s.model) return Promise.reject(new Error('Choose a model first.'));
+    const thinking = modelsRef.current.find((m) => m.name === s.model)?.thinking ?? false;
+    return rereadRegion(page, box, s, thinking, signal);
+  }, []);
   const onMove = useCallback((id: string, dir: -1 | 1) => dispatch({ type: 'move', id, dir }), []);
   const onRemove = useCallback((id: string) => {
     const p = pagesRef.current.find((x) => x.id === id);
@@ -575,6 +582,7 @@ export default function App() {
                 onUnqueue={unqueue}
                 onRemove={onRemove}
                 onMove={onMove}
+                onReread={onReread}
               />
             ))}
           </section>

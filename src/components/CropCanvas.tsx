@@ -9,12 +9,17 @@ interface Props {
   active: number | null;
   onSelect: (id: number) => void;
   onChange: (id: number, box: Box) => void;
+  /** Re-read mode (2.0): any drag draws the region to re-read; figure boxes are inert. */
+  selecting?: boolean;
+  selection?: Box | null;
+  onSelection?: (box: Box) => void;
 }
 
 type Drag =
   | { mode: 'move'; start: Box; px: number; py: number }
   | { mode: 'draw'; px: number; py: number }
-  | { mode: 'resize'; start: Box; corner: string; px: number; py: number };
+  | { mode: 'resize'; start: Box; corner: string; px: number; py: number }
+  | { mode: 'select'; px: number; py: number };
 
 const MIN = 0.02;
 
@@ -23,7 +28,7 @@ const MIN = 0.02;
  * pointer (drag inside / drag a corner / draw a new box on empty space) or with
  * the keyboard (arrows move, Shift+arrows resize).
  */
-export function CropCanvas({ src, alt, figures, active, onSelect, onChange }: Props) {
+export function CropCanvas({ src, alt, figures, active, onSelect, onChange, selecting = false, selection = null, onSelection }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
 
@@ -35,8 +40,14 @@ export function CropCanvas({ src, alt, figures, active, onSelect, onChange }: Pr
 
   const onDown = (e: PointerEvent<HTMLDivElement>) => {
     const t = e.target as HTMLElement;
-    const id = Number(t.closest<HTMLElement>('[data-fig]')?.dataset.fig);
     const p = point(e);
+    if (selecting) {
+      drag.current = { mode: 'select', ...p };
+      wrap.current!.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+    const id = Number(t.closest<HTMLElement>('[data-fig]')?.dataset.fig);
     if (id && id !== active) {
       onSelect(id);
       return;
@@ -52,8 +63,14 @@ export function CropCanvas({ src, alt, figures, active, onSelect, onChange }: Pr
 
   const onMove = (e: PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
-    if (!d || active == null) return;
+    if (!d) return;
     const { px, py } = point(e);
+    if (d.mode === 'select') {
+      const b = { x: Math.min(px, d.px), y: Math.min(py, d.py), w: Math.abs(px - d.px), h: Math.abs(py - d.py) };
+      if (b.w >= MIN && b.h >= MIN) onSelection?.(clampBox(b));
+      return;
+    }
+    if (active == null) return;
     const dx = px - d.px;
     const dy = py - d.py;
     let b: Box;
@@ -106,13 +123,20 @@ export function CropCanvas({ src, alt, figures, active, onSelect, onChange }: Pr
   return (
     <div
       ref={wrap}
-      className="crop"
+      className={`crop${selecting ? ' selecting' : ''}`}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={onUp}
     >
       <img src={src} alt={alt} draggable={false} />
+      {selecting && selection && (
+        <div
+          className="reread-box"
+          aria-hidden="true"
+          style={{ left: `${selection.x * 100}%`, top: `${selection.y * 100}%`, width: `${selection.w * 100}%`, height: `${selection.h * 100}%` }}
+        />
+      )}
       {figures.map((f) => {
         const on = f.id === active;
         return (

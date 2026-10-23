@@ -26,6 +26,8 @@ interface Props {
   onUnqueue: (id: string) => void;
   onRemove: (id: string) => void;
   onMove: (id: string, dir: -1 | 1) => void;
+  /** Re-reads a region of the original page; resolves with the proposed text. */
+  onReread: (page: Page, box: Box, signal: AbortSignal) => Promise<string>;
 }
 
 const STATUS: Record<Page['status'], string> = {
@@ -62,12 +64,22 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
+interface Reread {
+  phase: 'select' | 'running' | 'review';
+  box: Box | null;
+  text: string;
+  error: string;
+}
+
 export const PageView = memo(function PageView(props: Props) {
-  const { page, index, count, liveText, canConvert, onUpdate, onConvert, onUnqueue, onRemove, onMove } = props;
+  const { page, index, count, liveText, canConvert, onUpdate, onConvert, onUnqueue, onRemove, onMove, onReread } = props;
   const [tab, setTab] = useState<'preview' | 'edit'>('preview');
   const [active, setActive] = useState<number | null>(null);
   const [note, setNote] = useState('');
   const [editing, setEditing] = useState<Editing | null>(null);
+  /** Re-read from image (2.0): null when closed. */
+  const [reread, setReread] = useState<Reread | null>(null);
+  const rereadAbort = useRef<AbortController | null>(null);
   const srcRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLElement>(null);
   /** Block to focus after the preview re-renders (returning from the block editor). */
@@ -96,6 +108,14 @@ export const PageView = memo(function PageView(props: Props) {
   useEffect(() => {
     if (working) setEditing(null);
   }, [working]);
+
+  // Re-read belongs to the open block: close it when the block closes.
+  useEffect(() => {
+    if (!editing) {
+      rereadAbort.current?.abort();
+      setReread(null);
+    }
+  }, [editing]);
 
   // Return keyboard focus to the block that was just edited.
   useEffect(() => {
@@ -169,6 +189,39 @@ export const PageView = memo(function PageView(props: Props) {
     });
     setNote(`Moved to the notes after figure ${f.id}: ${r.moved}`);
     requestAnimationFrame(() => ta?.focus());
+  };
+
+  const startReread = () => {
+    setActive(null);
+    setReread({ phase: 'select', box: null, text: '', error: '' });
+  };
+  const runReread = async () => {
+    const box = reread?.box;
+    if (!box) return;
+    const ac = new AbortController();
+    rereadAbort.current = ac;
+    setReread((r) => r && { ...r, phase: 'running', error: '' });
+    try {
+      const text = await onReread(latest.current, box, ac.signal);
+      if (ac.signal.aborted) return;
+      setReread((r) =>
+        r && (text ? { ...r, phase: 'review', text } : { ...r, phase: 'select', error: 'The model returned no text. Try a slightly larger box.' }),
+      );
+    } catch (e) {
+      if (!ac.signal.aborted) setReread((r) => r && { ...r, phase: 'select', error: (e as Error).message });
+    } finally {
+      if (rereadAbort.current === ac) rereadAbort.current = null;
+    }
+  };
+  const closeReread = () => {
+    rereadAbort.current?.abort();
+    setReread(null);
+  };
+  const acceptReread = () => {
+    if (!reread?.text.trim()) return;
+    const text = reread.text;
+    setEditing((e) => (e ? { ...e, text } : e));
+    closeReread();
   };
 
   const convert = () => {
@@ -285,8 +338,39 @@ export const PageView = memo(function PageView(props: Props) {
             active={active}
             onSelect={setActive}
             onChange={setBox}
+            selecting={reread?.phase === 'select'}
+            selection={reread?.box ?? null}
+            onSelection={(box) => setReread((r) => r && { ...r, box, error: '' })}
           />
-          {page.figures.length > 0 && (
+          {reread && (
+            <div className="reread-controls" role="group" aria-label="Re-read from image">
+              <p className="hint">
+                {reread.phase === 'running'
+                  ? 'Reading the selected region…'
+                  : reread.phase === 'review'
+                    ? 'Review the proposal beside the block you are editing.'
+                    : reread.box
+                      ? 'Adjust by drawing again, or re-read this region.'
+                      : 'Drag a box around the handwriting for the block you are editing.'}
+              </p>
+              <div className="actions">
+                {reread.phase !== 'review' && (
+                  <button type="button" className="primary" onClick={runReread} disabled={!reread.box || reread.phase === 'running'}>
+                    {reread.phase === 'running' ? 'Reading…' : 'Re-read this region'}
+                  </button>
+                )}
+                <button type="button" onClick={closeReread}>
+                  {reread.phase === 'running' ? 'Stop' : 'Cancel'}
+                </button>
+              </div>
+              {reread.error && (
+                <p className="error" role="alert">
+                  {reread.error}
+                </p>
+              )}
+            </div>
+          )}
+          {!reread && page.figures.length > 0 && (
             <p className="hint">Select a figure, then drag its box, drag a corner, or draw a new box.</p>
           )}
         </div>
@@ -371,6 +455,37 @@ export const PageView = memo(function PageView(props: Props) {
                         figures={page.figures}
                         pageNo={index + 1}
                       />
+                      {!reread ? (
+                        <div className="reread-action">
+                          <button type="button" onClick={startReread} disabled={!canConvert} title={canConvert ? undefined : 'Choose a model first.'}>
+                            Re-read from image…
+                          </button>
+                          <span className="hint">Have the model look again at just this part of the original page.</span>
+                        </div>
+                      ) : reread.phase === 'review' ? (
+                        <div className="reread-review" role="region" aria-label="Proposed replacement from the image">
+                          <label htmlFor={`reread-${page.id}`}>Proposed replacement (you can edit it)</label>
+                          <textarea
+                            id={`reread-${page.id}`}
+                            rows={Math.min(12, Math.max(3, reread.text.split('\n').length + 1))}
+                            value={reread.text}
+                            spellCheck={false}
+                            onChange={(e) => setReread((r) => r && { ...r, text: e.target.value })}
+                          />
+                          <div className="actions">
+                            <button type="button" className="primary" onClick={acceptReread} disabled={!reread.text.trim()}>
+                              Use this
+                            </button>
+                            <button type="button" onClick={() => setReread((r) => r && { ...r, phase: 'select', text: '' })}>
+                              Try another box
+                            </button>
+                            <button type="button" onClick={closeReread}>
+                              Keep mine
+                            </button>
+                          </div>
+                          <p className="hint">“Use this” puts it in the editor above; press Done there to keep it.</p>
+                        </div>
+                      ) : null}
                       {editing.i < pb.html.length - 1 && (
                         <Preview
                           html={pb.html.slice(editing.i + 1).join('') + pb.tail}

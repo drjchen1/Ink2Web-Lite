@@ -67,6 +67,15 @@ the distance from $0$ to $1$ is one unit
 
 Output only the transcription.`;
 
+
+/** Focused second-pass prompt for a user-selected region (2.0). */
+export const REREAD_USER = `Transcribe only the handwriting visible in this cropped image into Markdown with LaTeX math.
+Copy exactly what is visible. Do not solve, explain, correct, complete, or infer anything outside the crop.
+Every piece of math must be LaTeX inside dollar signs. Use $...$ inside a sentence and $$...$$ for an equation on its own line.
+Preserve line breaks and wording. Write [illegible] for anything you cannot read. Skip crossed-out work.
+Do not create a FIGURE description. If the crop includes part of a drawing, transcribe only the writing that the user could use to replace the selected text block.
+Output only the transcription.`;
+
 /** The transcription prompt (kept as a function so callers don't depend on the constant). */
 export function transcribePrompt(): string {
   return TRANSCRIBE_USER;

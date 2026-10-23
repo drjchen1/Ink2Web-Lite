@@ -1,7 +1,7 @@
 import type { Box, Figure, Page, Settings } from '../types.ts';
 import { chat } from './ollama.ts';
 import { cropBase64, cropFigure, modelImage, pageLayout, snapToInk, squareImage } from './images.ts';
-import { DESCRIBE_USER, LOCATE_SCHEMA, TRANSCRIBE_SYSTEM, locatePrompt, transcribePrompt } from './prompts.ts';
+import { DESCRIBE_USER, LOCATE_SCHEMA, REREAD_USER, TRANSCRIBE_SYSTEM, locatePrompt, transcribePrompt } from './prompts.ts';
 import { defaultLayout, matchFigures } from './layout.ts';
 import { besideUnitCount, placeByPosition, renumber, type Placed } from './placement.ts';
 import { cleanModelOutput, extractFigures, isLooping, parseBoxes, removeMarkers, trimRepetition } from './transcript.ts';
@@ -162,4 +162,27 @@ export async function convertPage(
     });
   }
   return { source: numbered, figures: figures.sort((a, b) => a.id - b.id) };
+}
+
+
+/** Re-transcribes one user-selected region for review before replacing a text block. */
+export async function rereadRegion(
+  page: Page,
+  box: Box,
+  settings: Settings,
+  thinking: boolean,
+  signal: AbortSignal,
+): Promise<string> {
+  const raw = await chat({
+    baseUrl: settings.baseUrl,
+    model: settings.model,
+    disableThinking: thinking,
+    signal,
+    options: { temperature: 0, num_ctx: Math.min(settings.numCtx, 4096), num_predict: 1200 },
+    messages: [
+      { role: 'system', content: TRANSCRIBE_SYSTEM },
+      { role: 'user', content: REREAD_USER, images: [await cropBase64(page.image, box)] },
+    ],
+  });
+  return cleanModelOutput(raw).trim();
 }

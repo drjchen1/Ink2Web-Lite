@@ -177,3 +177,15 @@ p.warn { padding-left: .75rem; }
 .custom-prompt-banner button { margin-left: auto; }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+
+/* Re-read from image (2.0) */
+.crop.selecting { cursor: crosshair; }
+.crop.selecting .box { pointer-events: none; opacity: 0.4; }
+.reread-box { position: absolute; border: 3px solid #6a1b9a; background: rgba(106, 27, 154, 0.12); pointer-events: none; }
+.reread-controls { margin-top: 0.5rem; padding: 0.6rem 0.75rem; border: 2px solid #6a1b9a; border-radius: 6px; }
+.reread-controls .hint { margin-top: 0; }
+.reread-action { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.25rem 0 1rem; }
+.reread-action .hint { margin: 0; }
+.reread-review { border: 2px solid #6a1b9a; border-radius: 6px; padding: 0.75rem; margin: 0.25rem 0 1rem; }
+.reread-review label { display: block; font-weight: 600; margin-bottom: 0.35rem; }
+.reread-review textarea { width: 100%; font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin-bottom: 0.5rem; }
