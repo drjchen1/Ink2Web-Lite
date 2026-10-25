@@ -6,6 +6,7 @@ import { convertPage, rereadRegion } from './lib/pipeline.ts';
 import { buildDocument, downloadHtml, looksLikeFileName } from './lib/exportHtml.ts';
 import {
   PROJECT_EXT,
+  afterFailedConversion,
   clearSession,
   loadSession,
   markWritten,
@@ -18,6 +19,9 @@ import {
 } from './lib/storage.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { PageView } from './components/PageView.tsx';
+import { PageList } from './components/PageList.tsx';
+import { Dialog } from './components/Dialog.tsx';
+import { ExportPanel } from './components/ExportPanel.tsx';
 
 /* ---------------- settings ---------------- */
 
@@ -85,10 +89,18 @@ export default function App() {
 
   const [pages, dispatch] = useReducer(reducer, []);
   const [running, setRunning] = useState(false);
+  /** Re-reads in flight. The model runs one job at a time (memory on 8 GB machines). */
+  const [rereading, setRereading] = useState(0);
   const [live, setLive] = useState<{ id: string; text: string } | null>(null);
   const [status, setStatus] = useState('');
   const [loadingFiles, setLoadingFiles] = useState('');
   const [dragging, setDragging] = useState(false);
+  /** The page shown in the workspace (2.1: one page at a time). */
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  /** Open a figure's panel when its page shows (from the export checklist). */
+  const [focusFigure, setFocusFigure] = useState<{ pageId: string; id: number; n: number } | null>(null);
 
   const [title, setTitle] = useState('');
   /** True while the title is the file name (until the user types their own). */
@@ -119,28 +131,38 @@ export default function App() {
   const abortRef = useRef<AbortController | null>(null);
   const runningRef = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const topRef = useRef<HTMLElement>(null);
   const projectInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)), [settings]);
+
+  // The sidebar and the original page stick just below the top bar, whose height changes when it wraps.
+  useEffect(() => {
+    const el = topRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => document.documentElement.style.setProperty('--top-h', `${el.offsetHeight}px`));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const patchSettings = useCallback((p: Partial<Settings>) => setSettings((s) => ({ ...s, ...p })), []);
 
   /* ---------- saved work: restore offer + autosave ---------- */
 
   useEffect(() => {
-    let live = true;
+    let mounted = true;
     loadSession()
       .then((s) => {
-        if (!live) return;
+        if (!mounted) return;
         if (s) setOffer(s);
         else setAutosaveOn(true);
       })
       .catch(() => {
-        if (!live) return;
+        if (!mounted) return;
         setSaveFailed(true);
-        setSaveNote('This browser can’t save work automatically. Use Save project to keep your work.');
+        setSaveNote('This browser can’t save work automatically. Use Save (top bar) to keep a project file.');
       });
     return () => {
-      live = false;
+      mounted = false;
     };
   }, []);
 
@@ -150,6 +172,7 @@ export default function App() {
     pagesRef.current.forEach((p) => URL.revokeObjectURL(p.url));
     dispatch({ type: 'clear' });
     dispatch({ type: 'add', pages: s.pages.map((p) => ({ ...p, url: URL.createObjectURL(p.image) })) });
+    setCurrentId(s.pages[0]?.id ?? null);
     setTitle(s.title);
     setTitleAuto(s.titleAuto);
     setPageMarkers(s.pageMarkers);
@@ -189,7 +212,7 @@ export default function App() {
         setSaveFailed(false);
       } catch (e) {
         setSaveFailed(true);
-        setSaveNote(`Couldn’t save in this browser (${(e as Error).message}). Use Save project to keep your work.`);
+        setSaveNote(`Couldn’t save in this browser (${(e as Error).message}). Use Save (top bar) to keep a project file.`);
       }
     }, AUTOSAVE_DELAY);
     return () => clearTimeout(t);
@@ -272,18 +295,18 @@ export default function App() {
         try {
           setLoadingFiles(`Reading ${file.name}…`);
           const loaded = await loadFile(file, (n, total) => setLoadingFiles(`Reading ${file.name}: page ${n} of ${total}`));
-          dispatch({
-            type: 'add',
-            pages: loaded.map((l) => ({
-              ...l,
-              id: uid(),
-              url: URL.createObjectURL(l.image),
-              // Nothing converts until the user asks (one page or all of them).
-              status: 'idle',
-              source: '',
-              figures: [],
-            })),
-          });
+          const added: Page[] = loaded.map((l) => ({
+            ...l,
+            id: uid(),
+            url: URL.createObjectURL(l.image),
+            // Nothing converts until the user asks (one page or all of them).
+            status: 'idle',
+            source: '',
+            figures: [],
+          }));
+          dispatch({ type: 'add', pages: added });
+          // Show the first new page if nothing is showing yet.
+          if (added.length) setCurrentId((c) => (c && pagesRef.current.some((p) => p.id === c) ? c : added[0].id));
           setTitle((t) => t || file.name.replace(/\.[^.]+$/, ''));
         } catch (e) {
           setStatus((e as Error).message);
@@ -347,12 +370,14 @@ export default function App() {
           dispatch({ type: 'update', id: next.id, patch: { ...result, status: 'done' } });
           setStatus(`Page ${n} done in ${((performance.now() - started) / 1000).toFixed(0)} s.`);
         } catch (e) {
-          if ((e as Error).name === 'AbortError') {
-            dispatch({ type: 'update', id: next.id, patch: { status: 'cancelled' } });
-            setStatus('Stopped.');
+          // "Convert again" that fails or is stopped keeps the previous result and edits.
+          const aborted = (e as Error).name === 'AbortError';
+          const patch = afterFailedConversion(next, aborted ? null : (e as Error).message);
+          dispatch({ type: 'update', id: next.id, patch });
+          if (aborted) {
+            setStatus(patch.status === 'done' ? `Stopped. Page ${n} keeps its previous version.` : 'Stopped.');
             break;
           }
-          dispatch({ type: 'update', id: next.id, patch: { status: 'error', error: (e as Error).message } });
         }
       }
     } finally {
@@ -401,13 +426,19 @@ export default function App() {
   const onReread = useCallback((page: Page, box: Box, signal: AbortSignal) => {
     const s = settingsRef.current;
     if (!s.model) return Promise.reject(new Error('Choose a model first.'));
+    if (runningRef.current) return Promise.reject(new Error('Wait for the conversion to finish, then re-read.'));
     const thinking = modelsRef.current.find((m) => m.name === s.model)?.thinking ?? false;
-    return rereadRegion(page, box, s, thinking, signal);
+    setRereading((n) => n + 1);
+    return rereadRegion(page, box, s, thinking, signal).finally(() => setRereading((n) => n - 1));
   }, []);
   const onMove = useCallback((id: string, dir: -1 | 1) => dispatch({ type: 'move', id, dir }), []);
   const onRemove = useCallback((id: string) => {
-    const p = pagesRef.current.find((x) => x.id === id);
-    if (p) URL.revokeObjectURL(p.url);
+    const all = pagesRef.current;
+    const i = all.findIndex((x) => x.id === id);
+    if (i < 0) return;
+    URL.revokeObjectURL(all[i].url);
+    // Show the next page (or the previous one, if this was the last).
+    setCurrentId((c) => (c === id ? (all[i + 1] ?? all[i - 1])?.id ?? null : c));
     dispatch({ type: 'remove', id });
   }, []);
 
@@ -420,6 +451,7 @@ export default function App() {
     abortRef.current?.abort();
     pagesRef.current.forEach((p) => URL.revokeObjectURL(p.url));
     dispatch({ type: 'clear' });
+    setCurrentId(null);
     setTitle('');
     setTitleAuto(true);
     setStatus('');
@@ -427,49 +459,269 @@ export default function App() {
 
   const done = pages.filter((p) => p.status === 'done');
   const convertible = pages.filter((p) => CONVERTIBLE.includes(p.status)).length;
-  const notDone = pages.length - done.length;
-  const missingAlt = done.reduce((n, p) => n + p.figures.filter((f) => !f.alt.trim()).length, 0);
   const useHeading = titleAuto || looksLikeFileName(title);
+  const current = pages.find((p) => p.id === currentId) ?? pages[0] ?? null;
+  const currentIndex = current ? pages.indexOf(current) : -1;
+  const model = models.find((m) => m.name === settings.model);
+  const modelProblem = !!modelError || !settings.model || model?.vision === false;
+
+  const onGo = useCallback((dir: -1 | 1) => {
+    setCurrentId((c) => {
+      const all = pagesRef.current;
+      const i = Math.max(0, all.findIndex((p) => p.id === c));
+      return all[Math.min(all.length - 1, Math.max(0, i + dir))]?.id ?? c;
+    });
+  }, []);
+
+  // A new page starts at the top of the workspace.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [current?.id]);
 
   const exportHtml = () => {
     downloadHtml(buildDocument(done, { title, titleFromFileName: titleAuto, lang: 'en', pageMarkers }), title);
     setStatus(`Downloaded ${done.length} page${done.length > 1 ? 's' : ''}.`);
+    setExportOpen(false);
+  };
+
+  const goTo = (pageId: string, figure?: number) => {
+    setExportOpen(false);
+    setCurrentId(pageId);
+    if (figure !== undefined) setFocusFigure({ pageId, id: figure, n: Date.now() });
   };
 
   const offerDone = offer ? offer.pages.filter((p) => p.status === 'done').length : 0;
 
+  const chooseFiles = () => fileInput.current?.click();
+  const chooseProject = () => projectInput.current?.click();
+
   return (
-    <>
+    <div
+      className={`app${dragging ? ' dragging' : ''}`}
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.types].includes('Files')) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target || !e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        void addFiles([...e.dataTransfer.files]);
+      }}
+    >
       <a className="skip-link" href="#main">
         Skip to main content
       </a>
-      <header className="top">
-        <h1>
+      <input
+        ref={fileInput}
+        type="file"
+        accept={`${ACCEPT},${PROJECT_EXT},.json`}
+        multiple
+        hidden
+        onChange={(e) => {
+          void addFiles([...(e.target.files ?? [])]);
+          e.target.value = '';
+        }}
+      />
+      <input
+        ref={projectInput}
+        type="file"
+        accept={`${PROJECT_EXT},.json,application/json`}
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void openProject(f);
+          e.target.value = '';
+        }}
+      />
+
+      <header className="top" ref={topRef}>
+        <div className="brand">
           Ink2Web <span>Lite</span>
-        </h1>
-        <p>Handwritten math → accessible HTML, on your own computer.</p>
+        </div>
+        <div className="title-field">
+          <label htmlFor="title" className="sr-only">
+            Document title
+          </label>
+          <input
+            id="title"
+            value={title}
+            placeholder="Document title"
+            onChange={(e) => {
+              setTitle(e.target.value);
+              setTitleAuto(false);
+            }}
+          />
+          {saveNote && (
+            <span className={`save-note${saveFailed ? ' failed' : ''}`} title={saveNote}>
+              {saveFailed ? 'Not saved' : saveNote.replace(/^Saved in this browser at /, 'Saved ').replace(/\.$/, '')}
+            </span>
+          )}
+        </div>
+        <div className="top-actions">
+          <button type="button" onClick={chooseProject} disabled={running}>
+            Open
+          </button>
+          <button type="button" onClick={saveProject} disabled={!pages.length}>
+            Save
+          </button>
+          <button
+            type="button"
+            className={`model-button${modelProblem ? ' problem' : ''}`}
+            onClick={() => setSettingsOpen(true)}
+            aria-haspopup="dialog"
+          >
+            <span className="sr-only">Model and settings: </span>
+            {modelProblem ? '⚠ ' : ''}
+            {settings.model || (loadingModels ? 'Loading models…' : 'Choose a model')}
+          </button>
+          <button type="button" className="primary" onClick={() => setExportOpen(true)} disabled={!pages.length} aria-haspopup="dialog">
+            Export
+          </button>
+        </div>
       </header>
 
-      <main id="main">
-        {offer && (
-          <section className="panel restore" aria-labelledby="restore-h">
-            <h2 id="restore-h">Continue where you left off?</h2>
-            <p>
-              Work saved in this browser on {dateOf(offer.savedAt)}: <strong>{offer.title || 'Untitled'}</strong>,{' '}
-              {offer.pages.length} page{offer.pages.length > 1 ? 's' : ''} ({offerDone} converted).
-            </p>
-            <div className="actions">
-              <button type="button" className="primary" onClick={restore}>
-                Restore
+      {saveFailed && saveNote && (
+        <p className="banner warn" role="alert">
+          {saveNote}
+        </p>
+      )}
+      {customPrompt !== null && (
+        <p className="banner warn custom-prompt-banner" role="status">
+          <strong>Custom prompt in use.</strong> Pages you convert now use your edited prompt. It isn’t saved and ends when you reload the
+          app.{' '}
+          <button type="button" onClick={() => setCustomPrompt(null)} disabled={running}>
+            Use the default prompt
+          </button>
+        </p>
+      )}
+      {offer && (
+        <section className="banner restore" aria-labelledby="restore-h">
+          <h2 id="restore-h">Continue where you left off?</h2>
+          <p>
+            Work saved in this browser on {dateOf(offer.savedAt)}: <strong>{offer.title || 'Untitled'}</strong>, {offer.pages.length} page
+            {offer.pages.length > 1 ? 's' : ''} ({offerDone} converted).
+          </p>
+          <div className="actions">
+            <button type="button" className="primary" onClick={restore}>
+              Restore
+            </button>
+            <button type="button" onClick={startFresh}>
+              Start fresh
+            </button>
+          </div>
+          <p className="hint">Autosave is paused until you choose, so the saved work isn’t overwritten.</p>
+        </section>
+      )}
+
+      <div className={`layout${pages.length ? '' : ' empty'}`}>
+        {pages.length > 0 && (
+          <nav className="sidebar" aria-label="Pages and conversion">
+            <div className="sidebar-actions">
+              <button type="button" onClick={chooseFiles}>
+                + Add pages
               </button>
-              <button type="button" onClick={startFresh}>
-                Start fresh
-              </button>
+              {running ? (
+                <button type="button" className="danger" onClick={stop}>
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={convertAll}
+                  disabled={!convertible || !settings.model || rereading > 0}
+                  title={rereading > 0 ? 'Wait for the re-read to finish.' : undefined}
+                >
+                  Convert all{convertible ? ` (${convertible})` : ''}
+                </button>
+              )}
             </div>
-            <p className="hint">Autosave is paused until you choose, so the saved work isn’t overwritten.</p>
-          </section>
+            <p className="status" role="status" aria-live="polite">
+              {loadingFiles || status}
+            </p>
+            <PageList pages={pages} currentId={current?.id ?? null} onSelect={setCurrentId} />
+            <button type="button" className="clear-all" onClick={clearAll} disabled={running}>
+              Clear all pages
+            </button>
+          </nav>
         )}
 
+        <main id="main" tabIndex={-1}>
+          {current ? (
+            <PageView
+              key={current.id}
+              page={current}
+              index={currentIndex}
+              count={pages.length}
+              liveText={live?.id === current.id ? live.text : null}
+              canConvert={!!settings.model}
+              busy={running ? 'converting' : rereading > 0 ? 'rereading' : null}
+              focusFigure={focusFigure?.pageId === current.id ? { id: focusFigure.id, n: focusFigure.n } : null}
+              onUpdate={onUpdate}
+              onConvert={convertOne}
+              onUnqueue={unqueue}
+              onRemove={onRemove}
+              onMove={onMove}
+              onGo={onGo}
+              onReread={onReread}
+            />
+          ) : (
+            <section className="welcome" aria-labelledby="welcome-h">
+              <h1 id="welcome-h">Handwritten math → accessible HTML</h1>
+              <p className="lead">Everything runs on your own computer. Nothing leaves it.</p>
+              <div className="drop">
+                <p>Drop PDFs or photos of handwritten notes anywhere in this window, paste an image, or</p>
+                <div className="actions center">
+                  <button type="button" className="primary" onClick={chooseFiles}>
+                    Choose files
+                  </button>
+                  <button type="button" onClick={chooseProject}>
+                    Open a saved project
+                  </button>
+                </div>
+                <p className="hint">PDF, PNG, JPEG, WebP, or an {PROJECT_EXT} project.</p>
+              </div>
+              <ol className="steps">
+                <li>
+                  <strong>Add your notes.</strong> Each page appears in the list on the left.
+                </li>
+                <li>
+                  <strong>Convert</strong> one page, or all of them. The model reads one page at a time.
+                </li>
+                <li>
+                  <strong>Review</strong> each page beside its original: click anything to fix it, or have the model re-read just that spot.
+                </li>
+                <li>
+                  <strong>Export</strong> one accessible HTML file. Your work is saved in this browser as you go.
+                </li>
+              </ol>
+              {modelProblem && (
+                <p className="warn">
+                  {modelError || (settings.model ? 'The selected model can’t read images.' : 'No model selected yet.')}{' '}
+                  <button type="button" className="link" onClick={() => setSettingsOpen(true)}>
+                    Open model settings
+                  </button>
+                </p>
+              )}
+              <p className="status" role="status" aria-live="polite">
+                {loadingFiles || status}
+              </p>
+            </section>
+          )}
+        </main>
+      </div>
+
+      {dragging && (
+        <div className="drop-overlay" aria-hidden="true">
+          <p>Drop to add pages</p>
+        </div>
+      )}
+
+      <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Model and settings" id="settings" wide>
         <SettingsPanel
           settings={settings}
           models={models}
@@ -481,156 +733,18 @@ export default function App() {
           customPrompt={customPrompt}
           onCustomPrompt={setCustomPrompt}
         />
+      </Dialog>
 
-        <section className="panel" aria-labelledby="upload-h">
-          <h2 id="upload-h">Notes</h2>
-          <div
-            className={`drop${dragging ? ' over' : ''}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              void addFiles([...e.dataTransfer.files]);
-            }}
-          >
-            <p>Drop PDFs or photos of handwritten notes here, paste an image, or</p>
-            <button type="button" className="primary" onClick={() => fileInput.current?.click()}>
-              Choose files
-            </button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept={ACCEPT}
-              multiple
-              hidden
-              onChange={(e) => {
-                void addFiles([...(e.target.files ?? [])]);
-                e.target.value = '';
-              }}
-            />
-            <p className="hint">PDF, PNG, JPEG, WebP. Nothing leaves your computer.</p>
-          </div>
-
-          {customPrompt !== null && (
-            <p className="warn custom-prompt-banner" role="status">
-              <strong>Custom prompt in use.</strong> Pages you convert now use your edited prompt (Model › Advanced).
-              It isn’t saved and ends when you reload the app.{' '}
-              <button type="button" onClick={() => setCustomPrompt(null)} disabled={running}>
-                Use the default prompt
-              </button>
-            </p>
-          )}
-          <div className="toolbar">
-            <button type="button" className="primary" onClick={convertAll} disabled={!convertible || !settings.model}>
-              Convert all{convertible ? ` (${convertible} page${convertible > 1 ? 's' : ''})` : ''}
-            </button>
-            {running && (
-              <button type="button" className="danger" onClick={stop}>
-                Stop
-              </button>
-            )}
-            <button type="button" onClick={saveProject} disabled={!pages.length}>
-              Save project
-            </button>
-            <button type="button" onClick={() => projectInput.current?.click()} disabled={running}>
-              Open project
-            </button>
-            <input
-              ref={projectInput}
-              type="file"
-              accept={`${PROJECT_EXT},.json,application/json`}
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void openProject(f);
-                e.target.value = '';
-              }}
-            />
-            <button type="button" onClick={clearAll} disabled={!pages.length || running}>
-              Clear all
-            </button>
-          </div>
-          {pages.length > 1 && !running && convertible > 0 && (
-            <p className="hint">Or use the Convert button on a page to convert just that page.</p>
-          )}
-          {saveNote && <p className={saveFailed ? 'warn' : 'hint save-note'}>{saveNote}</p>}
-
-          <p className="status" role="status" aria-live="polite">
-            {loadingFiles || status}
-          </p>
-        </section>
-
-        {pages.length > 0 && (
-          <section aria-labelledby="pages-h">
-            <h2 id="pages-h" className="section-title">
-              Pages
-            </h2>
-            {pages.map((p, i) => (
-              <PageView
-                key={p.id}
-                page={p}
-                index={i}
-                count={pages.length}
-                liveText={live?.id === p.id ? live.text : null}
-                canConvert={!!settings.model}
-                onUpdate={onUpdate}
-                onConvert={convertOne}
-                onUnqueue={unqueue}
-                onRemove={onRemove}
-                onMove={onMove}
-                onReread={onReread}
-              />
-            ))}
-          </section>
-        )}
-
-        {done.length > 0 && (
-          <section className="panel" aria-labelledby="export-h">
-            <h2 id="export-h">Export</h2>
-            <div className="grid">
-              <div className="field">
-                <label htmlFor="title">Document title (becomes the page’s h1 and &lt;title&gt;)</label>
-                <input
-                  id="title"
-                  value={title}
-                  aria-describedby="title-help"
-                  onChange={(e) => {
-                    setTitle(e.target.value);
-                    setTitleAuto(false);
-                  }}
-                />
-                <p id="title-help" className="hint">
-                  {useHeading
-                    ? 'This is the file name, so the first heading in your notes will be used as the title. Type your own title to override it.'
-                    : 'Used as written.'}
-                </p>
-              </div>
-            </div>
-            <div className="checks">
-              <label>
-                <input type="checkbox" checked={pageMarkers} onChange={(e) => setPageMarkers(e.target.checked)} /> Mark
-                page boundaries
-              </label>
-            </div>
-            {missingAlt > 0 && (
-              <p className="warn">
-                {missingAlt} figure{missingAlt > 1 ? 's are' : ' is'} missing alt text.
-              </p>
-            )}
-            <p className="hint">
-              Exports {done.length} converted page{done.length > 1 ? 's' : ''}
-              {notDone > 0 ? `; ${notDone} page${notDone > 1 ? 's' : ''} not converted will be left out` : ''}.
-            </p>
-            <button type="button" className="primary" onClick={exportHtml}>
-              Download HTML
-            </button>
-          </section>
-        )}
-      </main>
-    </>
+      <Dialog open={exportOpen} onClose={() => setExportOpen(false)} title="Export" id="export">
+        <ExportPanel
+          pages={pages}
+          titleFromHeading={useHeading}
+          pageMarkers={pageMarkers}
+          onPageMarkers={setPageMarkers}
+          onDownload={exportHtml}
+          onGoTo={goTo}
+        />
+      </Dialog>
+    </div>
   );
 }

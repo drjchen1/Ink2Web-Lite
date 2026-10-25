@@ -19,6 +19,8 @@
  *   \color{red}{...}          inside math: named colors are mapped to accessible shades
  */
 
+import { groupEnd } from './transcript.ts';
+
 export interface RenderContext {
   /** Last heading level emitted (1 = document title). Shared across pages so levels never skip. */
   lastHeading: number;
@@ -263,17 +265,6 @@ export function accessibleTexColors(tex: string): string {
     new RegExp(`\\\\(color|textcolor)\\s*\\{\\s*(${INK_NAMES})\\s*\\}`, 'gi'),
     (_, cmd: string, c: string) => `\\${cmd}{${INK_COLORS[c.toLowerCase()]}}`,
   );
-}
-
-/** Index just past the balanced {...} group that opens at `open` (or -1). */
-function groupEnd(s: string, open: number): number {
-  let depth = 0;
-  for (let i = open; i < s.length; i++) {
-    if (s[i] === '\\') i++;
-    else if (s[i] === '{') depth++;
-    else if (s[i] === '}' && --depth === 0) return i + 1;
-  }
-  return -1;
 }
 
 /**

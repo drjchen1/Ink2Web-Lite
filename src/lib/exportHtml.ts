@@ -222,8 +222,13 @@ ${body}
 `;
 }
 
+/** A safe file name from the document title: "Lecture 3: Springs" -> "lecture-3-springs". */
+export function fileSlug(title: string): string {
+  return (title.trim() || 'notes').replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-').toLowerCase() || 'notes';
+}
+
 export function downloadHtml(html: string, title: string) {
-  const name = (title.trim() || 'notes').replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-').toLowerCase() || 'notes';
+  const name = fileSlug(title);
   const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: `${name}.html` });
   document.body.appendChild(a);

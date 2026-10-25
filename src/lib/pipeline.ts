@@ -1,10 +1,10 @@
 import type { Box, Figure, Page, Settings } from '../types.ts';
 import { chat } from './ollama.ts';
-import { cropBase64, cropFigure, modelImage, pageLayout, snapToInk, squareImage } from './images.ts';
+import { cropBase64, cropFigure, modelImage, pageLayout, regionImage, snapToInk, squareImage } from './images.ts';
 import { DESCRIBE_USER, LOCATE_SCHEMA, REREAD_USER, TRANSCRIBE_SYSTEM, locatePrompt, transcribePrompt } from './prompts.ts';
 import { defaultLayout, matchFigures } from './layout.ts';
 import { besideUnitCount, placeByPosition, renumber, type Placed } from './placement.ts';
-import { cleanModelOutput, extractFigures, isLooping, parseBoxes, removeMarkers, trimRepetition } from './transcript.ts';
+import { cleanModelOutput, cleanReread, extractFigures, isLooping, parseBoxes, removeMarkers, trimRepetition } from './transcript.ts';
 
 export interface PageProgress {
   phase: 'transcribing' | 'locating';
@@ -164,8 +164,10 @@ export async function convertPage(
   return { source: numbered, figures: figures.sort((a, b) => a.id - b.id) };
 }
 
-
-/** Re-transcribes one user-selected region for review before replacing a text block. */
+/**
+ * Re-transcribes one user-selected region (2.0). Returns a proposal only; nothing
+ * on the page changes until the user accepts it and presses Done.
+ */
 export async function rereadRegion(
   page: Page,
   box: Box,
@@ -173,6 +175,8 @@ export async function rereadRegion(
   thinking: boolean,
   signal: AbortSignal,
 ): Promise<string> {
+  let looped = false;
+  let checkedAt = 0;
   const raw = await chat({
     baseUrl: settings.baseUrl,
     model: settings.model,
@@ -181,8 +185,17 @@ export async function rereadRegion(
     options: { temperature: 0, num_ctx: Math.min(settings.numCtx, 4096), num_predict: 1200 },
     messages: [
       { role: 'system', content: TRANSCRIBE_SYSTEM },
-      { role: 'user', content: REREAD_USER, images: [await cropBase64(page.image, box)] },
+      { role: 'user', content: REREAD_USER, images: [await regionImage(page.image, box, settings.enhance)] },
     ],
+    onToken: (_, full) => {
+      if (full.length - checkedAt >= 80) {
+        checkedAt = full.length;
+        if (isLooping(full)) {
+          looped = true;
+          return false;
+        }
+      }
+    },
   });
-  return cleanModelOutput(raw).trim();
+  return cleanReread(looped ? trimRepetition(raw) : raw);
 }

@@ -28,6 +28,19 @@ export function cleanModelOutput(raw: string, style: AnnotationStyle = 'notes'):
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/**
+ * Clean-up for a re-read region (2.0): the same repairs as a full page, minus any
+ * [[FIGURE: ...]] line, since a replacement for a text block never holds a figure.
+ */
+export function cleanReread(raw: string): string {
+  return cleanModelOutput(raw)
+    .split('\n')
+    .filter((l) => !/^\s*\[\[\s*FIGURE\b/i.test(l))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 const COLOR_NAMES = 'red|green|orange|purple|blue';
 
 /* ------------------------------------------------------------------------------------
@@ -35,7 +48,7 @@ const COLOR_NAMES = 'red|green|orange|purple|blue';
  * ---------------------------------------------------------------------------------- */
 
 /** Index just past the balanced {...} group that opens at `open` (or -1). */
-function groupEnd(s: string, open: number): number {
+export function groupEnd(s: string, open: number): number {
   let depth = 0;
   for (let i = open; i < s.length; i++) {
     if (s[i] === '\\') i++;
@@ -536,18 +549,6 @@ export function markerUnitIndex(source: string): Map<number, number> {
     if (m) map.set(Number(m[1]), i);
   });
   return map;
-}
-
-/**
- * For each source unit: the figure-marker id it holds, or null for text.
- * Used with figure positions to place new markers in reading order.
- */
-export function unitMarkers(source: string): (number | null)[] {
-  const lines = source.split('\n');
-  return sourceUnits(source).map((u) => {
-    const m = u.start === u.end ? lines[u.start].match(MARKER_LINE) : null;
-    return m ? Number(m[1]) : null;
-  });
 }
 
 /**

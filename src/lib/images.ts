@@ -167,8 +167,8 @@ export async function squareImage(blob: Blob): Promise<string> {
   return base64Of(c, 'image/jpeg', 0.9);
 }
 
-/** Crops a normalized box out of the page. Returns the smaller of PNG / JPEG as a data URL. */
-export async function cropFigure(blob: Blob, box: Box): Promise<string> {
+/** A normalized box of the page on a canvas (long side at most 1600 px). */
+async function cropCanvas(blob: Blob, box: Box): Promise<[HTMLCanvasElement, CanvasRenderingContext2D]> {
   const bmp = await bitmap(blob);
   const sx = box.x * bmp.width;
   const sy = box.y * bmp.height;
@@ -178,6 +178,12 @@ export async function cropFigure(blob: Blob, box: Box): Promise<string> {
   const [c, ctx] = canvas(sw * s, sh * s);
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return [c, ctx];
+}
+
+/** Crops a normalized box out of the page. Returns the smaller of PNG / JPEG as a data URL. */
+export async function cropFigure(blob: Blob, box: Box): Promise<string> {
+  const [c] = await cropCanvas(blob, box);
   const png = c.toDataURL('image/png');
   const jpg = c.toDataURL('image/jpeg', 0.88);
   return png.length <= jpg.length * 1.15 ? png : jpg;
@@ -186,6 +192,16 @@ export async function cropFigure(blob: Blob, box: Box): Promise<string> {
 /** Base64 of a crop, for asking the model to describe a figure. */
 export async function cropBase64(blob: Blob, box: Box): Promise<string> {
   return (await cropFigure(blob, box)).split(',')[1];
+}
+
+/**
+ * JPEG base64 of a region for re-reading its handwriting: the same contrast boost
+ * as the full-page pass (when it is on), so both passes see the page the same way.
+ */
+export async function regionImage(blob: Blob, box: Box, doEnhance: boolean): Promise<string> {
+  const [c, ctx] = await cropCanvas(blob, box);
+  if (doEnhance) enhance(ctx, c.width, c.height);
+  return base64Of(c, 'image/jpeg', 0.9);
 }
 
 /* ---------- ink analysis (figure detection + snap-to-ink) ---------- */
@@ -250,4 +266,26 @@ export async function snapToInk(blob: Blob, box: Box): Promise<Box> {
     w: (x1 - x0 + 1 + 2 * pad) / w,
     h: (y1 - y0 + 1 + 2 * pad) / h,
   });
+}
+
+/* ---------- thumbnails for the page list ---------- */
+
+const thumbs = new WeakMap<Blob, Promise<string>>();
+
+/** A small JPEG object URL of the page (the full page is ~20 MB decoded; this is a few KB). */
+export function thumbnail(blob: Blob, width = 160): Promise<string> {
+  let p = thumbs.get(blob);
+  if (!p) {
+    p = (async () => {
+      const bmp = await createImageBitmap(blob);
+      const s = width / bmp.width;
+      const [c, ctx] = canvas(width, bmp.height * s);
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close();
+      return URL.createObjectURL(await toBlob(c, 'image/jpeg', 0.8));
+    })();
+    thumbs.set(blob, p);
+  }
+  return p;
 }

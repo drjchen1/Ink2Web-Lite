@@ -1,4 +1,5 @@
 import type { Figure, Page, PageStatus } from '../types.ts';
+import { fileSlug } from './exportHtml.ts';
 
 /**
  * Saving work so it survives a refresh, a crash, or closing the tab.
@@ -47,6 +48,20 @@ export function restoredStatus(p: { status: PageStatus; source: string; figures:
     return p.source || p.figures.length ? 'done' : 'idle';
   }
   return p.status;
+}
+
+/**
+ * What a page becomes when its conversion fails or is stopped. A page that already
+ * had a result ("Convert again") keeps it, still done, so it stays in the export;
+ * the user's edits are never lost to a failed re-conversion.
+ */
+export function afterFailedConversion(
+  p: { source: string; figures: Figure[] },
+  error: string | null,
+): { status: PageStatus; error?: string } {
+  const kept = !!p.source || p.figures.length > 0;
+  if (error === null) return { status: kept ? 'done' : 'cancelled' };
+  return kept ? { status: 'done', error: `Converting again failed, so the previous version is kept. ${error}` } : { status: 'error', error };
 }
 
 export function toStored(p: Page): StoredPage {
@@ -126,8 +141,7 @@ export function projectFromJson(text: string): Session {
 
 /** File name for a saved project, from the document title. */
 export function projectFileName(title: string): string {
-  const base = (title.trim() || 'notes').replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-').toLowerCase() || 'notes';
-  return `${base}${PROJECT_EXT}`;
+  return `${fileSlug(title)}${PROJECT_EXT}`;
 }
 
 /* ---------------------------------------------------------------------------------

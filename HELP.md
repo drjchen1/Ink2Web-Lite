@@ -1,8 +1,8 @@
 # Ink2Web Lite: User Guide
 
-This guide covers everyday use of Ink2Web Lite 1.9.5. For installation, see [README.md](README.md).
+This guide covers everyday use of Ink2Web Lite 2.1. For installation, see [README.md](README.md).
 
-> **Your work is saved as you go**, in this browser on this computer. To keep a copy you can move or back up, use **Save project**. See [Saving your work](#8-saving-your-work).
+> **Your work is saved as you go**, in this browser on this computer. To keep a copy you can move or back up, use **Save** in the top bar. See [Saving your work](#8-saving-your-work).
 
 ---
 
@@ -26,18 +26,30 @@ This guide covers everyday use of Ink2Web Lite 1.9.5. For installation, see [REA
 
 ## 1. The basic workflow
 
+### The screen
+
+- **Top bar** (always visible): the document title, when work was last saved, **Open** and **Save** for project files, the **model button** (shows the model in use; click it for settings), and **Export**.
+- **Page list** (left): every page with a thumbnail, its status, and how many things on it still need checking. Click a page to show it. **+ Add pages**, **Convert all** (or **Stop**), and **Clear all pages** are here too.
+- **Workspace** (right): one page at a time. The **original** is on the left and stays in view while you scroll; the **document** is on the right. The page's own buttons are along its top: **← Prev / Next →**, **Convert again**, **↑ / ↓** to reorder, **Remove**.
+
+On a narrow window the page list moves above the workspace, and the original sits above the document.
+
+### Step by step
+
 1. Make sure **Ollama is running** (the llama icon is in your menu bar or system tray).
 2. Start the app with `npm run dev` and open **http://localhost:5173**.
-3. **Choose a model**, then **add your notes** (PDF or photos), or choose **Restore** / **Open project** to continue earlier work.
-4. Click **Convert** on the pages you want, or **Convert all**.
+3. **Choose a model**, then **add your notes** (PDF or photos), or choose **Restore** / **Open** to continue earlier work.
+4. Click **Convert this page**, or **Convert all** in the page list.
 5. **Review each converted page** against the original. Click anything that needs fixing, edit it in place, and press **Done**. Check each figure's alt text. Expect some light editing; the app is an assistant, not a one-click converter.
-6. Click **Download HTML**. Only converted pages are included.
+6. Click **Export**. It lists anything still flagged (missing alt text, figures to check, LaTeX warnings), each linked to its page. Then **Download HTML**. Only converted pages are included.
 
 A typical page takes from a few seconds to a minute, depending on your model and computer.
 
 ---
 
 ## 2. Choosing a model and settings
+
+Click the **model button** in the top bar (it shows the current model, or ⚠ when there's a problem) to open **Model and settings**. Close it with **×**, Esc, or a click outside.
 
 ### Ollama vision model
 
@@ -94,7 +106,7 @@ Under **Advanced › Transcription prompt**, click **Inspect or change** to see 
 Things to know:
 
 - **It's temporary.** The edited prompt isn't saved, and it ends when you reload the app. **Reset to default** (or **Use the default prompt** in the banner) switches back at any time.
-- **You'll always see when it's on:** a **Custom prompt in use** banner appears above **Convert all**, and the prompt shows a **Custom (temporary)** badge.
+- **You'll always see when it's on:** a **Custom prompt in use** banner appears under the top bar, and the prompt shows a **Custom (temporary)** badge.
 - **Keep the formats.** The app's clean-up depends on the prompt asking for `[[FIGURE: …]]` lines, `[[note: term | words]]` lines, and math in `$…$`. If an edit drops one, a warning explains what will stop working.
 - **To keep a change for good**, click **Copy prompt**, paste it into `src/lib/prompts.ts`, and run `npm test`.
 
@@ -106,22 +118,23 @@ Your settings are remembered. Settings can't be changed while a page is converti
 
 ## 3. Adding pages
 
-- **Drag and drop** PDFs or images onto the **Notes** area, or click **Choose files**.
+- **Drag and drop** PDFs or images **anywhere in the window**, or click **+ Add pages** (or **Choose files** on the start screen).
 - **Paste** a screenshot directly with ⌘V / Ctrl+V.
 - Supported formats: **PDF, PNG, JPEG, WebP, GIF, BMP**. iPhone HEIC photos must be converted to JPEG first.
-- Dropping a saved project file (`.ink2web.json`) on the Notes area opens it.
+- Dropping a saved project file (`.ink2web.json`) on the window opens it.
 - Each PDF page becomes its own page in the app, marked **Not converted**. Nothing is converted until you ask.
-- Use **↑ / ↓** on a page to reorder it, and **Remove** to delete it. **Clear all** starts over.
+- Use **↑ / ↓** at the top of a page to move it earlier or later, and **Remove** to delete it (it asks first if the page is converted). **Clear all pages** starts over.
 
 ---
 
 ## 4. Converting
 
-- **Convert** on a page converts **only that page**.
-- **Convert all** converts every page that isn't done yet.
-- Pages convert **one at a time**, in page order. Other pages you click **Convert** on are marked **Waiting**; **Cancel** takes them back out of the queue.
-- **Stop** stops the current page and cancels all waiting pages.
-- **Convert again** on a finished page asks first, because it **replaces your edits on that page**.
+- **Convert this page** converts **only that page**.
+- **Convert all** (in the page list) converts every page that isn't done yet.
+- Pages convert **one at a time**, in page order. Other pages you convert meanwhile are marked **Waiting**; **Cancel waiting** takes them back out of the queue. You can keep reviewing other pages while this happens.
+- **Stop** (in the page list, in place of Convert all) stops the current page and cancels all waiting pages.
+- **Convert again** on a finished page asks first, because it **replaces your edits on that page**. If it fails or you stop it, the page keeps its previous version and your edits.
+- The model does **one job at a time**: while a page converts, **Re-read** waits; while a re-read runs, **Convert** waits.
 
 | Status | Meaning |
 |---|---|
@@ -136,7 +149,7 @@ Your settings are remembered. Settings can't be changed while a page is converti
 
 ## 5. Reviewing and editing a page
 
-Each page shows the **original** on the left and the result on the right.
+Each page shows the **original** on the left and the document on the right. The original stays in view as you scroll, with the page's figures (or, while re-reading, the re-read controls) just above it.
 
 ### Click to edit
 
@@ -148,10 +161,22 @@ In **Preview**, every paragraph, equation, and figure is a separate part you can
   - Deleting everything in the box and pressing **Done** removes that part.
   - Clicking another part saves the open one first.
 - **An equation and its "where…" sentence** are one part: the note lines sit right under the equation.
-- **Click a figure** to jump to its card, with the alt text box ready to type.
+- **Click a figure** to open its panel in place, with the alt text box ready to type. See [Working with figures](#7-working-with-figures).
 - **With the keyboard:** Tab to a part and press Enter. When you finish, focus returns to that part.
 
 Selecting text in the preview (to copy it) doesn't open the editor.
+
+### Re-read from image
+
+When a part came out badly (a garbled line, a misread equation), let the model look again at just that spot instead of fixing it by hand:
+
+1. Click the paragraph or equation to open it, then click **Re-read from image…** under the editor.
+2. On the original page (left; the re-read controls appear right above it), **drag a box** around the handwriting for that part. Figure boxes are inactive meanwhile, so you can't move a crop by accident. Drag again to adjust.
+3. Click **Re-read this region**. The model reads only the boxed area, which is much faster than a whole page.
+4. The **proposed replacement** appears under the editor and is scrolled into view. Review it (you can edit it), then choose **Use this** (it goes into the editor), **Try another box**, or **Keep mine**.
+5. Press **Done** in the editor to keep the change. Nothing on the page changes before that; **Cancel** throws it all away.
+
+Re-read uses the same model and the same **Boost contrast** setting as converting. It isn't available while a page is converting.
 
 ### Edit source
 
@@ -264,14 +289,16 @@ A circle, box, or bracket you draw around **words** just to highlight them is ig
 
 ## 7. Working with figures
 
-Below the preview, each figure has its own card with a thumbnail. Clicking a figure in the preview takes you to its card.
+Every figure opens in a **figure panel** that takes its place in the document, just as a paragraph opens in the editor. Open it by clicking the figure in the document, its box on the original, or its number in the **Figures** row above the original. A number marked **!** needs checking. **Done** (or Esc) closes the panel.
+
+While a figure's panel is open, its box on the original is selected (blue) so you can adjust the crop. The panel ends with a preview of the figure as it will appear in the document.
 
 ### Badges
 
 | Badge | Meaning |
 |---|---|
 | **Found by detector** | The app found this drawing in the ink; the model didn't mention it. |
-| **Check** | The crop or description may need attention. |
+| **Check crop** | The crop or position is a guess and may need attention. Adjusting the box clears it. |
 | **Check alt text** | The alt text looks like it includes writing from next to the drawing. See [Moving writing out of the alt text](#moving-writing-out-of-the-alt-text). |
 | **Not placed in text** | The figure has no marker in the transcription, so it won't appear in the export. Click **Insert in text**. |
 
@@ -298,7 +325,7 @@ You can always do the same by hand: cut the sentence from the alt text and paste
 
 ### Adjusting the crop
 
-Click **Adjust crop**, or click a box on the page image. Then drag inside the box to move it, drag a corner to resize it, or drag on empty space to draw a new box. With the keyboard: Tab to the selected box, then **arrow keys** move it and **Shift + arrow keys** resize it. **Snap to ink** tightens the box around the drawing.
+Open the figure (its box on the original turns blue). Then drag inside the box to move it, drag a corner to resize it, or drag on empty space to draw a new box. With the keyboard: Tab to the selected box, then **arrow keys** move it and **Shift + arrow keys** resize it. **Snap crop to ink** tightens the box around the drawing.
 
 ### Layout in the document
 
@@ -312,8 +339,8 @@ Click **Adjust crop**, or click a box on the page image. Then drag inside the bo
 
 ### Adding or removing figures
 
-- **+ Add figure** looks for a drawing that isn't a figure yet and adds it in the right place; otherwise it adds a box at the end for you to draw.
-- **Delete** removes the figure and its marker.
+- **+ Add** (in the Figures row above the original) looks for a drawing that isn't a figure yet and adds it in the right place; otherwise it adds a box at the end for you to draw.
+- **Delete figure** (in its panel) removes the figure and its marker.
 
 ---
 
@@ -321,15 +348,15 @@ Click **Adjust crop**, or click a box on the page image. Then drag inside the bo
 
 ### Autosave
 
-Everything you do is saved in the browser a moment after each change: page images, transcriptions, notes, figures, crops, alt text, and the title. A line under the toolbar shows when it was last saved. An edit still open in the in-place editor is saved when you press **Done**.
+Everything you do is saved in the browser a moment after each change: page images, transcriptions, notes, figures, crops, alt text, and the title. The top bar shows when it was last saved. An edit still open in the in-place editor is kept when you press **Done** or go to another page.
 
 When you open the app again, it asks **Continue where you left off?**: **Restore** brings everything back; **Start fresh** deletes the saved work. Until you choose, autosave is paused.
 
-**Clear all** removes all pages and the saved copy. It asks first if you have converted pages.
+**Clear all pages** removes all pages and the saved copy. It asks first if you have converted pages.
 
 ### Project files
 
-**Save project** downloads one file (for example `lesson21.ink2web.json`) with everything, including the page images. **Open project** (or dropping the file on the Notes area) loads it back, on this computer or another one.
+**Save** (top bar) downloads one project file (for example `lesson21.ink2web.json`) with everything, including the page images. **Open** (or dropping the file on the window) loads it back, on this computer or another one.
 
 ### Good to know
 
@@ -341,14 +368,15 @@ When you open the app again, it asks **Continue where you left off?**: **Restore
 
 ## 9. Exporting
 
-In the **Export** section at the bottom:
+The **title** in the top bar becomes the exported page's title and main heading. While the title is still the file name, the **first heading in your notes** is used instead.
 
-- **Document title** becomes the page title and its main heading. While the title is still the file name, the **first heading in your notes** is used instead.
+Click **Export** (top bar):
+
+- **Before you export** lists what is still flagged on converted pages: figures with no alt text or alt text to check, figures whose crop needs checking, LaTeX warnings, and failed re-conversions. Click **Page n** to go straight there (a figure opens in its panel).
 - **Mark page boundaries** adds small "Page 2", "Page 3" dividers between pages.
-- A warning shows how many figures are **missing alt text**.
-- **Only converted pages are exported.**
+- **Only converted pages are exported**; the dialog says how many are left out.
 
-**Download HTML** saves one self-contained `.html` file with all figures embedded. Viewers need an internet connection the first time they open it, because MathJax loads from a CDN.
+**Download HTML** saves one `.html` file with all figures embedded. Viewers need an internet connection the first time they open it, because MathJax loads from a CDN.
 
 The exported HTML is the finished document; the **project file** is what you need to keep editing later.
 
@@ -379,7 +407,7 @@ These come from what small vision models can and can't do reliably. Each has a q
 | **Words and symbols can be misread** (a handwritten 7 read as 9, for example). | Proofread; **High detail** helps. Click the part to fix it. |
 | **Spelling gets "corrected."** Small models tend to fix the author's spelling despite instructions to copy exactly. | Fix it back if it matters. |
 | **A "where…" note can name the wrong term.** | Click the equation and fix the `[[note: term \| words]]` line. |
-| **Very flat drawings** (a lone number line, a single long arrow) may not be detected as figures. | Click **+ Add figure**. |
+| **Very flat drawings** (a lone number line, a single long arrow) may not be detected as figures. | Click **+ Add** in the Figures row above the original. |
 
 ---
 
@@ -397,13 +425,13 @@ These come from what small vision models can and can't do reliably. Each has a q
 | **Clicking the preview doesn't open the editor** | Make sure you're on **Preview**, not **Edit source**. If you were selecting text, click once without dragging. |
 | **A toolbar button did something odd** | Press ⌘Z / Ctrl+Z to undo it. Box, Underline, and Color act differently inside and outside math, so check where the cursor is. |
 | **My work didn't come back after reopening** | Use the same browser and the same address (5173 or 4173). Otherwise open a project file. |
-| **"Couldn't save in this browser"** | Click **Save project** now; then free space or leave a private window. |
-| **"This file is not an Ink2Web Lite project"** | Open the `.ink2web.json` file from **Save project**, not the exported `.html`. |
+| **"Couldn't save in this browser"** | Click **Save** (top bar) now; then free space or leave a private window. |
+| **"This file is not an Ink2Web Lite project"** | Open the `.ink2web.json` file from **Save**, not the exported `.html`. |
 | **Equations come out as plain text** | Click the line and use **$$** (whole line) or **$x$** (part of a sentence). |
 | **A "where…" sentence names the wrong term** | Click the equation and fix the term in its `[[note: term \| words]]` line. |
 | **A box or note appears that isn't in my notes** | Click it and delete it. |
 | **Lots of misread words** | Try **High detail**, keep **Boost contrast** on, then **Convert again**. |
-| **A figure is missing** | Click **+ Add figure**. |
+| **A figure is missing** | Click **+ Add** in the Figures row above the original. |
 | **Something that isn't a drawing became a figure** | **Delete** it in its figure card. |
 | **Conversion is very slow** | Use an instruct build; try **Fast** detail or a context window of 4096. |
 | **Math shows as raw `\(…\)` in the exported file** | The viewer is offline; MathJax needs the internet to load. |
@@ -422,7 +450,7 @@ Yes. Reopen it and choose **Restore**, or open a project file.
 The model is asked to describe each drawing and to keep the writing beside it in the notes, but small models sometimes include that writing in the description anyway. The app fixes the most common forms automatically and flags the rest with **Check alt text**; **Move to notes** fixes them in one click.
 
 **Can I change what the model is asked to do?**
-Yes, for experiments: **Model › Advanced › Transcription prompt** shows the prompt and lets you try an edited version until you reload the app. See [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt).
+Yes, for experiments: **model button › Advanced › Transcription prompt** shows the prompt and lets you try an edited version until you reload the app. See [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt).
 
 **Can I edit the rendered math directly, like in a word processor?**
 Not quite: clicking opens that part's source, with a live preview right underneath and a toolbar for the common marks. This keeps the export exact and predictable.

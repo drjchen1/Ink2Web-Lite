@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { ModelInfo, Settings } from '../types.ts';
 import { PromptInspector } from './PromptInspector.tsx';
 
@@ -32,10 +33,17 @@ export function SettingsPanel({
   onCustomPrompt,
 }: Props) {
   const selected = models.find((m) => m.name === settings.model);
+  // Typed freely, applied when the field loses focus (so typing "16384" isn't clamped at "1").
+  const [ctxDraft, setCtxDraft] = useState(String(settings.numCtx));
+  useEffect(() => setCtxDraft(String(settings.numCtx)), [settings.numCtx]);
+  const applyCtx = () => {
+    const n = Math.max(4096, Math.round(Number(ctxDraft) || 8192));
+    setCtxDraft(String(n));
+    if (n !== settings.numCtx) onChange({ numCtx: n });
+  };
 
   return (
-    <section className="panel" aria-labelledby="settings-h">
-      <h2 id="settings-h">Model</h2>
+    <div className="settings">
       <div className="grid">
         <div className="field">
           <label htmlFor="model">Ollama vision model</label>
@@ -133,15 +141,19 @@ export function SettingsPanel({
               type="number"
               min={4096}
               step={1024}
-              value={settings.numCtx}
+              value={ctxDraft}
               disabled={disabled}
-              onChange={(e) => onChange({ numCtx: Math.max(4096, Number(e.target.value) || 8192) })}
+              onChange={(e) => setCtxDraft(e.target.value)}
+              onBlur={applyCtx}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyCtx();
+              }}
             />
             <p className="hint">Must fit the image plus the transcription. 8192 is enough for most pages; 4096 saves memory on 8 GB Macs.</p>
           </div>
         </div>
         <PromptInspector customPrompt={customPrompt} onCustomPrompt={onCustomPrompt} disabled={disabled} />
       </details>
-    </section>
+    </div>
   );
 }

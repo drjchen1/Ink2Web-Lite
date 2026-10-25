@@ -1,5 +1,5 @@
 import type { Page } from '../types.ts';
-import { markdownToHtml, type RenderContext } from './markdown.ts';
+import { latexWarnings, markdownToHtml, type RenderContext } from './markdown.ts';
 import { figureHtml, wrapEndLines } from './exportHtml.ts';
 import { MARKER_LINE, sourceUnits } from './transcript.ts';
 
@@ -299,4 +299,29 @@ export function applyMark(text: string, s: number, e: number, mark: Mark): Edit 
 /** Applies an edit to a string (for tests and as a fallback when the browser can't insert text). */
 export function applyEdit(text: string, ed: Edit): string {
   return text.slice(0, ed.from) + ed.insert + text.slice(ed.to);
+}
+
+/* ---------------------------------------------------------------------------------
+ * Things to check on a page (2.1): page list counts and the export checklist
+ * ------------------------------------------------------------------------------- */
+
+export interface PageIssue {
+  kind: 'error' | 'alt-missing' | 'alt-check' | 'figure-check' | 'latex';
+  /** The figure it concerns, if any. */
+  figure?: number;
+  text: string;
+}
+
+/** What still needs a look on a converted page. Empty when there's nothing to check. */
+export function pageIssues(page: Pick<Page, 'source' | 'figures' | 'error'>): PageIssue[] {
+  const out: PageIssue[] = [];
+  if (page.error) out.push({ kind: 'error', text: page.error });
+  for (const f of page.figures) {
+    if (!f.alt.trim()) out.push({ kind: 'alt-missing', figure: f.id, text: `Figure ${f.id} has no alt text.` });
+    else if (altTextIssue(f.alt)) out.push({ kind: 'alt-check', figure: f.id, text: `Figure ${f.id}: check the alt text.` });
+    if (f.needsReview) out.push({ kind: 'figure-check', figure: f.id, text: `Figure ${f.id}: check the crop and position.` });
+  }
+  const w = latexWarnings(page.source).length;
+  if (w) out.push({ kind: 'latex', text: `${w} LaTeX warning${w > 1 ? 's' : ''}.` });
+  return out;
 }

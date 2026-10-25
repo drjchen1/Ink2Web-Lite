@@ -1,7 +1,7 @@
 {
   "name": "ink2web-lite",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "description": "Handwritten math notes to accessible HTML, using a local Ollama vision model (tuned for Qwen).",
   "scripts": {

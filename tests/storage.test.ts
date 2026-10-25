@@ -43,3 +43,17 @@ assert.equal(projectFileName('Lesson21'), 'lesson21.ink2web.json');
 assert.equal(projectFileName('Mechanical Vibration (Continued)'), 'mechanical-vibration-continued.ink2web.json');
 assert.equal(projectFileName(''), 'notes.ink2web.json');
 console.log('All storage tests passed.');
+
+/* ---------------- failed or stopped conversions (2.0.1) ---------------- */
+{
+  const { afterFailedConversion } = await import('../src/lib/storage.ts');
+  const fresh = { source: '', figures: [] };
+  const edited = { source: '## Springs\nedited text', figures: [] };
+  assert.deepEqual(afterFailedConversion(fresh, null), { status: 'cancelled' }, 'stopped, nothing to keep');
+  assert.deepEqual(afterFailedConversion(fresh, 'boom'), { status: 'error', error: 'boom' }, 'failed, nothing to keep');
+  assert.deepEqual(afterFailedConversion(edited, null), { status: 'done' }, 'stopped Convert again keeps the page done');
+  const f = afterFailedConversion(edited, 'Ollama error 500');
+  assert.equal(f.status, 'done', 'failed Convert again keeps the page done (still exported)');
+  assert.match(f.error ?? '', /previous version is kept.*Ollama error 500/);
+  console.log('Failed-conversion tests passed.');
+}

@@ -55,3 +55,13 @@ assert(html.includes('figure.fig.wrap.align-left{float:left') && html.includes('
 assert(html.includes('.ink-red{color:#B3261E}') && html.includes('strong.ul{'), 'handwriting-mark CSS');
 
 console.log('All export tests passed.');
+
+/* ---------------- file names (2.0.1) ---------------- */
+{
+  const { fileSlug } = await import('../src/lib/exportHtml.ts');
+  const { projectFileName } = await import('../src/lib/storage.ts');
+  assert.equal(fileSlug('Lecture 3: Springs & Dampers'), 'lecture-3-springs-dampers');
+  assert.equal(fileSlug('   '), 'notes');
+  assert.equal(projectFileName('Lecture 3: Springs'), 'lecture-3-springs.ink2web.json', 'project and HTML use the same name');
+  console.log('File name tests passed.');
+}

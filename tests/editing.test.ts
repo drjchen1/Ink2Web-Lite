@@ -112,3 +112,17 @@ assert.deepEqual([mv.alt, mv.source], ['', '[[FIGURE 2]]\n\nk: spring constant']
 mv = moveAltToNotes('text', 3, 'a sentence here', 0, 0);
 assert.equal(mv.source, 'text\n\na sentence here');
 console.log('All editing tests passed.');
+
+/* ---------------- things to check (2.1) ---------------- */
+{
+  const { pageIssues } = await import('../src/lib/editing.ts');
+  const base: Figure = { id: 1, box: { x: 0, y: 0, w: 0.5, h: 0.5 }, alt: 'graph of u(t)', caption: '', src: '', needsReview: false, width: 60, align: 'center', wrap: false, besideLines: 0 };
+  assert.deepEqual(pageIssues({ source: '$$x = 1$$', figures: [base] }), [], 'clean page has nothing to check');
+  const kinds = pageIssues({
+    source: '$$\\frac{1}{2$$',
+    figures: [{ ...base, alt: '' }, { ...base, id: 2, alt: 'graph, with text "$x$ is the area" written beside it', needsReview: true }],
+    error: 'Converting again failed',
+  }).map((i) => [i.kind, i.figure ?? null]);
+  assert.deepEqual(kinds, [['error', null], ['alt-missing', 1], ['alt-check', 2], ['figure-check', 2], ['latex', null]]);
+  console.log('Page-issue tests passed.');
+}

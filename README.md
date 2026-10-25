@@ -10,7 +10,7 @@ Everything runs on your own computer. The app uses a vision model running locall
 
 Ink2Web Lite is an **assistant, not a one-click converter**: the model does a first transcription, and you review and lightly edit it before exporting. Click any part of the preview to fix it in place; your work is saved as you go.
 
-Version 1.9.5. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 2.1. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
@@ -30,13 +30,35 @@ Other vision models may work but aren't tested. Each model has its own quirks, a
 - **`src/lib/prompts.ts`**: the transcription prompt. Keep it short; every added rule competes with the important ones.
 - **`src/lib/transcript.ts`**: the clean-up step that repairs model output after transcription. This is the better place for model-specific fixes, because it costs nothing in prompt length and helps every model.
 
-To try a prompt change without touching the code, use **Model › Advanced › Transcription prompt** in the app: it shows the prompt, lets you edit it for the next conversions, warns if a format the app depends on is missing, and copies your version for pasting into `prompts.ts`. The edit is temporary and ends when you reload.
+To try a prompt change without touching the code, click the **model button** in the app's top bar, then **Advanced › Transcription prompt**: it shows the prompt, lets you edit it for the next conversions, warns if a format the app depends on is missing, and copies your version for pasting into `prompts.ts`. The edit is temporary and ends when you reload.
 
 Run `npm test` after changes, and compare a few pages you know well before and after.
 
 ---
 
 ## What's new
+
+### 2.1 (new layout)
+- **One page at a time.** A **page list** on the left (thumbnail, status, and how many things to check on each page) and a **workspace** showing the selected page, with **← Prev / Next →**.
+- **Top bar, always visible:** title, save status, **Open** / **Save**, the **model button** (opens Model and settings), and **Export**.
+- **The original stays in view** while you scroll the document, with its tools on top: the **Figures** row, or the **re-read** controls while re-reading. The re-read proposal scrolls into view and takes the focus when it arrives.
+- **Figures open in place**, like text: click a figure in the document, its box on the original, or its number, and its panel (alt text, caption, layout, crop, and a preview) takes its place. The long list of figure cards under each page is gone.
+- **Export checklist:** Export lists what's still flagged (missing alt text, crops to check, LaTeX warnings), each linked to its page and figure.
+- **Drop files anywhere** in the window. A friendlier start screen.
+- An edit left open in the block editor is kept when you go to another page. Removing a converted page asks first.
+- Only the current page is rendered, so long PDFs stay responsive. The page list uses small thumbnails.
+
+### 2.0.1 (clean-up)
+- **A failed or stopped *Convert again* keeps the page's previous version and your edits**, still marked Done and still exported. (Before, the old text stayed on screen but was silently left out of the export.)
+- **The model does one job at a time:** re-reading waits while a page converts, and converting waits while a re-read runs, so two jobs never compete for memory on an 8 GB machine.
+- Re-read uses the **Boost contrast** setting like a full conversion, stops runaway repetition, and never proposes a figure line.
+- Removing a page (or **Clear all**, **Restore**, **Open project**) stops any re-read running on it.
+- A **Dismiss** button for the message on a page whose re-conversion failed.
+- The **Context window** field can be typed freely; it's checked when you leave the field.
+- Housekeeping: patch notes folded into this README, unused code removed, `LICENSE` restored, `dist/` ignored by git.
+
+### 2.0
+- **Re-read from image.** While editing a paragraph or equation, click **Re-read from image…**, drag a box around that handwriting on the original page, and click **Re-read this region**. The model reads only that crop and proposes a replacement you can edit. **Use this** puts it in the editor; press **Done** to keep it. Nothing changes on the page without that.
 
 ### 1.9.5
 - **Prompt inspector** under **Model › Advanced**: see the exact transcription prompt sent to the model, and try an edited version on the next conversions.
@@ -82,7 +104,7 @@ Run `npm test` after changes, and compare a few pages you know well before and a
 - Copies the original layout: figure size, alignment, and text written beside a drawing.
 - Lets you fix things where you see them: click any part of the preview, with a toolbar for the marks you use most.
 - Saves your work automatically, and as project files you can keep or move.
-- Produces a single self-contained HTML file built for accessibility:
+- Produces a single HTML file (figures embedded; MathJax loads from a CDN) built for accessibility:
   - correct heading structure and landmarks
   - MathJax with assistive MathML
   - alt text for every figure
@@ -155,7 +177,7 @@ npm run build      # once per new version
 npm run preview    # then open http://localhost:4173
 ```
 
-The dev server (port 5173) and preview server (port 4173) count as different sites to the browser, so each keeps its own autosaved work. Use **Save project** / **Open project** to move work between them.
+The dev server (port 5173) and preview server (port 4173) count as different sites to the browser, so each keeps its own autosaved work. Use **Save** / **Open** (project files) to move work between them.
 
 If Ollama runs on a different machine:
 
@@ -171,11 +193,11 @@ Replace the project files (keep or delete `node_modules`), then run `npm install
 
 ## Using it (short version)
 
-1. Choose a model.
-2. Drop in a PDF or photos (or open a saved project).
-3. Click **Convert** on the pages you want, or **Convert all**.
-4. Review each page against the original: click anything that needs fixing, edit it, and press **Done**. Check the figures and their alt text, especially any marked **Check alt text**. Your edits are saved as you go.
-5. Click **Download HTML**. Only converted pages are exported.
+1. Choose a model (the model button in the top bar).
+2. Drop a PDF or photos anywhere in the window (or **Open** a saved project).
+3. Click **Convert this page**, or **Convert all** in the page list.
+4. Review each page against the original: click anything that needs fixing, edit it (or **Re-read from image…** to let the model look again), and press **Done**. Check the figures and their alt text, especially any marked **Check alt text**. Your edits are saved as you go.
+5. Click **Export**, clear anything it flags, and **Download HTML**. Only converted pages are exported.
 
 The full guide is in **[HELP.md](HELP.md)**.
 
@@ -211,9 +233,13 @@ A few design choices matter for accuracy:
 
 ```
 src/
-  App.tsx               app state, conversion queue, upload, saving, export
+  App.tsx               app state, conversion queue, upload, saving; top bar, page list, workspace
   components/
-    PageView.tsx        one page: original, preview, in-place editing, figures
+    PageView.tsx        one page: original (with figure / re-read tools), document, in-place editing
+    PageList.tsx        the page list: thumbnails, status, things to check
+    FigurePanel.tsx     one figure's alt text, caption, layout, and crop actions (opens in place)
+    ExportPanel.tsx     export checklist and Download
+    Dialog.tsx          modal dialog (settings, export)
     BlockEditor.tsx     the in-place editor for one block
     MarkupToolbar.tsx   toolbar for math, notes, boxes, colors, ...
     Preview.tsx         renders and typesets HTML; reports clicks on blocks
@@ -228,7 +254,7 @@ src/
     placement.ts        decides where figures go in the text
     transcript.ts       cleans model output; figure lines; moves drawn notes out
     markdown.ts         Markdown (+ marks, "where" sentences) → accessible HTML
-    editing.ts          click-to-edit blocks; toolbar marks; alt text check and Move to notes
+    editing.ts          click-to-edit blocks; toolbar marks; alt text check, Move to notes; things to check
     exportHtml.ts       builds the downloadable HTML document
     storage.ts          autosave (IndexedDB) and project files
     images.ts           PDF/image loading, contrast boost, cropping
@@ -260,12 +286,12 @@ These come from what small vision models can and can't do reliably. Each has a q
 | **Words and symbols can be misread** (a handwritten 7 read as 9, for example). | Proofread against the original; **High detail** helps. Click the part to fix it. |
 | **Spelling gets "corrected."** Small models tend to fix the author's spelling despite instructions to copy exactly. | Fix it back if it matters. |
 | **A "where…" note can name the wrong term.** The sentence is only as good as the term the model picks. | Click the equation and fix the `[[note: term \| words]]` line. |
-| **Very flat drawings** (a lone number line, a single long arrow) may not be detected as figures. | Click **+ Add figure**. |
+| **Very flat drawings** (a lone number line, a single long arrow) may not be detected as figures. | Click **+ Add** in the Figures row above the original. |
 
 Other limits:
 
 - **The in-place editor edits source**, not the rendered math directly; you still type LaTeX, with the toolbar's help.
-- **Autosave is per browser.** Work saved in Safari isn't visible in Chrome, and clearing the browser's site data deletes it. Keep a project file for anything important.
+- **Autosave is per browser.** Work saved in Safari isn't visible in Chrome, and clearing the browser's site data deletes it. Use **Save** to keep a project file for anything important.
 - **Exported files load MathJax from a CDN**, so viewers need an internet connection to see the rendered math.
 
 ---

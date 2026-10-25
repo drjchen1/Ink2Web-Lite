@@ -113,3 +113,11 @@ const lum = (hex: string) => {
 };
 for (const [name, hex] of Object.entries(INK_COLORS)) assert(1.05 / (lum(hex) + 0.05) >= 4.5, `${name} contrast`);
 console.log('All notation tests passed.');
+
+/* ---------------- re-read clean-up (2.0.1) ---------------- */
+{
+  const { cleanReread } = await import('../src/lib/transcript.ts');
+  const raw = '```markdown\nthe spring stretches by $L$\n[[FIGURE: graph of u(t)]]\n\\[ mg = kL \\]\n```';
+  assert.equal(cleanReread(raw), 'the spring stretches by $L$\n$$mg = kL$$', 're-read drops figure lines and fences, normalizes math');
+  console.log('Re-read clean-up tests passed.');
+}
