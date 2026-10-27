@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ModelInfo, Settings } from '../types.ts';
 import { PromptInspector } from './PromptInspector.tsx';
+import type { PromptLibrary } from '../lib/promptLibrary.ts';
 
 interface Props {
   settings: Settings;
@@ -10,9 +11,12 @@ interface Props {
   disabled: boolean;
   onChange: (patch: Partial<Settings>) => void;
   onRefresh: () => void;
-  /** Temporary transcription prompt (null = built-in). */
+  /** Transcription prompt in use (null = built-in). */
   customPrompt: string | null;
   onCustomPrompt: (prompt: string | null) => void;
+  /** Saved prompts; onPromptLibrary returns false if the browser refused to store them. */
+  promptLibrary: PromptLibrary;
+  onPromptLibrary: (lib: PromptLibrary) => boolean;
 }
 
 const DETAIL = [
@@ -31,6 +35,8 @@ export function SettingsPanel({
   onRefresh,
   customPrompt,
   onCustomPrompt,
+  promptLibrary,
+  onPromptLibrary,
 }: Props) {
   const selected = models.find((m) => m.name === settings.model);
   // Typed freely, applied when the field loses focus (so typing "16384" isn't clamped at "1").
@@ -152,7 +158,13 @@ export function SettingsPanel({
             <p className="hint">Must fit the image plus the transcription. 8192 is enough for most pages; 4096 saves memory on 8 GB Macs.</p>
           </div>
         </div>
-        <PromptInspector customPrompt={customPrompt} onCustomPrompt={onCustomPrompt} disabled={disabled} />
+        <PromptInspector
+          customPrompt={customPrompt}
+          onCustomPrompt={onCustomPrompt}
+          library={promptLibrary}
+          onLibrary={onPromptLibrary}
+          disabled={disabled}
+        />
       </details>
     </div>
   );

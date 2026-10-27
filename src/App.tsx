@@ -17,6 +17,7 @@ import {
   saveSession,
   type Session,
 } from './lib/storage.ts';
+import { findByText, loadLibrary, startupPrompt, storeLibrary, type PromptLibrary } from './lib/promptLibrary.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { PageView } from './components/PageView.tsx';
 import { PageList } from './components/PageList.tsx';
@@ -106,11 +107,18 @@ export default function App() {
   /** True while the title is the file name (until the user types their own). */
   const [titleAuto, setTitleAuto] = useState(true);
   const [pageMarkers, setPageMarkers] = useState(true);
+  /** Saved transcription prompts (Advanced settings, 2.1.1), kept in this browser. */
+  const [promptLib, setPromptLib] = useState<PromptLibrary>(loadLibrary);
   /**
-   * Temporary replacement for the transcription prompt (Advanced settings). Kept
-   * only in memory: it's gone after a reload, and isn't saved with the work.
+   * Replacement for the transcription prompt (null = built-in). Starts as the saved
+   * prompt marked "use whenever the app opens", if any. Not saved with the work.
    */
-  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
+  const [customPrompt, setCustomPrompt] = useState<string | null>(() => startupPrompt(promptLib));
+  const updatePromptLib = useCallback((lib: PromptLibrary) => {
+    setPromptLib(lib);
+    return storeLibrary(lib);
+  }, []);
+  const promptInUse = findByText(promptLib, customPrompt);
   const customPromptRef = useRef(customPrompt);
   customPromptRef.current = customPrompt;
 
@@ -591,8 +599,17 @@ export default function App() {
       )}
       {customPrompt !== null && (
         <p className="banner warn custom-prompt-banner" role="status">
-          <strong>Custom prompt in use.</strong> Pages you convert now use your edited prompt. It isn’t saved and ends when you reload the
-          app.{' '}
+          {promptInUse ? (
+            <>
+              <strong>Custom prompt in use: “{promptInUse.name}”.</strong> Pages you convert now use this saved prompt
+              {promptInUse.id === promptLib.startupId ? ', which is set to start with the app' : ''}.
+            </>
+          ) : (
+            <>
+              <strong>Custom prompt in use.</strong> Pages you convert now use your edited prompt. It isn’t saved and ends when you
+              reload the app.
+            </>
+          )}{' '}
           <button type="button" onClick={() => setCustomPrompt(null)} disabled={running}>
             Use the default prompt
           </button>
@@ -732,6 +749,8 @@ export default function App() {
           onRefresh={refreshModels}
           customPrompt={customPrompt}
           onCustomPrompt={setCustomPrompt}
+          promptLibrary={promptLib}
+          onPromptLibrary={updatePromptLib}
         />
       </Dialog>
 

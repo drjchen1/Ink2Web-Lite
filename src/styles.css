@@ -291,6 +291,10 @@ dialog.dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .prompt-inspector .warn ul { margin: .25rem 0 0; padding-left: 1.25rem; }
 .prompt-inspector .warn p { margin: 0; }
 .prompt-inspector .actions { margin: .5rem 0; }
+.prompt-source, .prompt-save { align-items: center; flex-wrap: wrap; margin: .5rem 0; }
+.prompt-source label, .prompt-save label { font-weight: 600; }
+.prompt-save input { flex: 1; min-width: 10rem; }
+.prompt-startup { display: block; margin: .25rem 0 .5rem; }
 
 /* ---------- narrow screens ---------- */
 

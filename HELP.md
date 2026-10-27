@@ -103,14 +103,23 @@ Under **Advanced › Transcription prompt**, click **Inspect or change** to see 
 2. Click **Use this prompt**. Pages you convert from now on use it; pages already converted keep their text.
 3. Compare with **Convert again** on a page you know well.
 
+To keep an edited prompt:
+
+1. Type a name under **Save as** and click **Save**. Saved prompts stay in this browser.
+2. To use it later, pick it from the **Prompt** list and click **Use this prompt**.
+3. To make it your everyday prompt, tick **Use “…” whenever the app opens**. Untick it (or delete the prompt) to go back to the built-in prompt on start.
+
+Saving under an existing name updates that prompt (the app asks first). If the updated prompt is the one in use, the new text is used from then on. **Delete** removes the selected saved prompt.
+
 Things to know:
 
-- **It's temporary.** The edited prompt isn't saved, and it ends when you reload the app. **Reset to default** (or **Use the default prompt** in the banner) switches back at any time.
-- **You'll always see when it's on:** a **Custom prompt in use** banner appears under the top bar, and the prompt shows a **Custom (temporary)** badge.
+- **The built-in prompt never changes.** Your saved prompts are copies, so when an app update improves the built-in prompt you still get it. If the built-in has changed since you saved a prompt, a note under the **Prompt** list says so; select **Built-in (default)** to compare.
+- **Unsaved edits are temporary.** An edited prompt you haven't saved ends when you reload the app. **Reset to default** (or **Use the default prompt** in the banner) switches back at any time; with a start-up prompt set, it comes back next time the app opens.
+- **You'll always see when it's on:** a **Custom prompt in use** banner appears under the top bar (with the saved prompt's name, if it has one), and the prompt shows a **Saved: …** or **Custom (unsaved)** badge.
 - **Keep the formats.** The app's clean-up depends on the prompt asking for `[[FIGURE: …]]` lines, `[[note: term | words]]` lines, and math in `$…$`. If an edit drops one, a warning explains what will stop working.
-- **To keep a change for good**, click **Copy prompt**, paste it into `src/lib/prompts.ts`, and run `npm test`.
+- **Saved prompts belong to this browser.** They aren't in project files. To move one to another computer or make it part of the app, click **Copy prompt**, paste it into `src/lib/prompts.ts`, and run `npm test`.
 
-Ink2Web Lite is tuned for the default prompt; edited prompts are for experiments.
+Ink2Web Lite is tuned for the built-in prompt; test an edited prompt on a few pages you know well before relying on it.
 
 Your settings are remembered. Settings can't be changed while a page is converting.
 
@@ -418,7 +427,7 @@ These come from what small vision models can and can't do reliably. Each has a q
 | **"Cannot reach Ollama"** | Open the Ollama app (or run `ollama serve`), then click **Refresh**. |
 | **No models in the list** | Install one: `ollama pull qwen3-vl:4b-instruct`, then **Refresh**. |
 | **A model is very slow, or returns empty or cut-off text** | It's probably a thinking build. Use `qwen3-vl:4b-instruct`. |
-| **Results suddenly look different** | Check for the **Custom prompt in use** banner above **Convert all**. Click **Use the default prompt**, then **Convert again**. |
+| **Results suddenly look different** | Check for the **Custom prompt in use** banner above **Convert all** (a saved prompt may be set to start with the app). Click **Use the default prompt**, then **Convert again**. |
 | **The app seems to behave like an older version** | Check `grep version package.json`, restart `npm run dev`, and hard-refresh the browser tab (⌘⇧R). |
 | **A sentence from the notes is missing, and it's in a figure's alt text** | Select it in the alt text and click **Move to notes**. |
 | **A sentence from the notes is missing everywhere** | The model skipped it. Click the part before it and type it in, or try **Convert again** (with **High detail**). |
@@ -450,7 +459,7 @@ Yes. Reopen it and choose **Restore**, or open a project file.
 The model is asked to describe each drawing and to keep the writing beside it in the notes, but small models sometimes include that writing in the description anyway. The app fixes the most common forms automatically and flags the rest with **Check alt text**; **Move to notes** fixes them in one click.
 
 **Can I change what the model is asked to do?**
-Yes, for experiments: **model button › Advanced › Transcription prompt** shows the prompt and lets you try an edited version until you reload the app. See [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt).
+Yes: **model button › Advanced › Transcription prompt** shows the prompt, lets you try an edited version, and save it under a name (optionally to start with the app). See [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt).
 
 **Can I edit the rendered math directly, like in a word processor?**
 Not quite: clicking opens that part's source, with a live preview right underneath and a toolbar for the common marks. This keeps the export exact and predictable.

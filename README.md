@@ -30,13 +30,18 @@ Other vision models may work but aren't tested. Each model has its own quirks, a
 - **`src/lib/prompts.ts`**: the transcription prompt. Keep it short; every added rule competes with the important ones.
 - **`src/lib/transcript.ts`**: the clean-up step that repairs model output after transcription. This is the better place for model-specific fixes, because it costs nothing in prompt length and helps every model.
 
-To try a prompt change without touching the code, click the **model button** in the app's top bar, then **Advanced › Transcription prompt**: it shows the prompt, lets you edit it for the next conversions, warns if a format the app depends on is missing, and copies your version for pasting into `prompts.ts`. The edit is temporary and ends when you reload.
+To try a prompt change without touching the code, click the **model button** in the app's top bar, then **Advanced › Transcription prompt**: it shows the prompt, lets you edit it for the next conversions, warns if a format the app depends on is missing, saves named versions in your browser (one of which can start with the app), and copies your version for pasting into `prompts.ts`.
 
 Run `npm test` after changes, and compare a few pages you know well before and after.
 
 ---
 
 ## What's new
+
+### 2.1.1
+- **Saved prompts.** Under **Model › Advanced › Transcription prompt**, an edited prompt can be saved under a name (kept in this browser). Pick a saved prompt from the **Prompt** list to load it, update it by saving under the same name, or delete it.
+- **Start with a saved prompt:** tick **Use “…” whenever the app opens** to make a saved prompt your everyday prompt. The built-in prompt itself is never changed, so app updates to it still reach you; a saved prompt notes when the built-in has changed since it was saved.
+- The banner and badge name the saved prompt in use.
 
 ### 2.1 (new layout)
 - **One page at a time.** A **page list** on the left (thumbnail, status, and how many things to check on each page) and a **workspace** showing the selected page, with **← Prev / Next →**.
@@ -245,10 +250,11 @@ src/
     Preview.tsx         renders and typesets HTML; reports clicks on blocks
     CropCanvas.tsx      figure crop boxes on the page image
     SettingsPanel.tsx   model and settings
-    PromptInspector.tsx view and temporarily change the transcription prompt
+    PromptInspector.tsx view, change, and save transcription prompts
   lib/
     ollama.ts           talks to the local Ollama server
     prompts.ts          instructions given to the model
+    promptLibrary.ts    saved prompts and the one that starts with the app (localStorage)
     pipeline.ts         converts one page from start to finish (default or custom prompt)
     layout.ts           finds drawings and text lines in the ink
     placement.ts        decides where figures go in the text
