@@ -1,4 +1,4 @@
-import { TRANSCRIBE_USER } from './prompts.ts';
+import { BUILTIN_PROMPTS, asBuiltinId, type BuiltinPromptId } from './prompts.ts';
 
 /**
  * Saved transcription prompts (2.1.1).
@@ -12,6 +12,10 @@ import { TRANSCRIBE_USER } from './prompts.ts';
  * each saved prompt remembers which built-in it was made alongside, so the app can
  * say when the built-in has changed since.
  *
+ * Since 2.1.2 there are two built-in prompts (everyday hardware and larger models).
+ * A saved prompt records which one it was based on, and the change note compares
+ * against that one.
+ *
  * Everything except load/save is pure, so it is tested in node (tests/promptLibrary.test.ts).
  */
 
@@ -20,8 +24,10 @@ export interface SavedPrompt {
   name: string;
   text: string;
   savedAt: number;
-  /** Hash of the built-in prompt when this was saved (see builtinChanged). */
+  /** Hash of the built-in prompt it was based on, when this was saved (see builtinChanged). */
   builtinHash: string;
+  /** The built-in prompt it was based on (2.1.2; older saved prompts are 'everyday'). */
+  base: BuiltinPromptId;
 }
 
 export interface PromptLibrary {
@@ -42,7 +48,11 @@ export function hashText(s: string): string {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
-export const BUILTIN_HASH = hashText(TRANSCRIBE_USER.trim());
+/** Hash of a built-in prompt's current text. */
+export const builtinHash = (id: BuiltinPromptId) => hashText(BUILTIN_PROMPTS[id].text.trim());
+
+/** Hash of the everyday built-in prompt (kept from 2.1.1). */
+export const BUILTIN_HASH = builtinHash('everyday');
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -62,12 +72,14 @@ export function savePrompt(
   text: string,
   now: number,
   newId: () => string = () => Math.random().toString(36).slice(2, 10),
+  /** The built-in prompt this one was based on. */
+  base: BuiltinPromptId = 'everyday',
 ): { lib: PromptLibrary; saved: SavedPrompt } {
   const clean = name.trim();
   if (!clean) throw new Error('Give the prompt a name.');
   if (!text.trim()) throw new Error('The prompt is empty.');
   const existing = findByName(lib, clean);
-  const saved: SavedPrompt = { id: existing?.id ?? newId(), name: clean, text, savedAt: now, builtinHash: BUILTIN_HASH };
+  const saved: SavedPrompt = { id: existing?.id ?? newId(), name: clean, text, savedAt: now, builtinHash: builtinHash(base), base };
   const prompts = existing ? lib.prompts.map((p) => (p.id === existing.id ? saved : p)) : [...lib.prompts, saved];
   return { lib: { ...lib, prompts }, saved };
 }
@@ -86,8 +98,8 @@ export function startupPrompt(lib: PromptLibrary): string | null {
   return lib.prompts.find((p) => p.id === lib.startupId)?.text ?? null;
 }
 
-/** True when the built-in prompt has changed (an app update) since this prompt was saved. */
-export const builtinChanged = (p: SavedPrompt) => p.builtinHash !== BUILTIN_HASH;
+/** True when the built-in prompt it was based on has changed (an app update) since this prompt was saved. */
+export const builtinChanged = (p: SavedPrompt) => p.builtinHash !== builtinHash(p.base);
 
 /** Reads a stored library, dropping anything malformed instead of failing. */
 export function parseLibrary(json: string | null): PromptLibrary {
@@ -100,7 +112,12 @@ export function parseLibrary(json: string | null): PromptLibrary {
     );
     const startupId = typeof raw.startupId === 'string' && prompts.some((p) => p.id === raw.startupId) ? raw.startupId : null;
     return {
-      prompts: prompts.map((p) => ({ ...p, savedAt: Number(p.savedAt) || 0, builtinHash: String(p.builtinHash ?? '') })),
+      prompts: prompts.map((p) => ({
+        ...p,
+        savedAt: Number(p.savedAt) || 0,
+        builtinHash: String(p.builtinHash ?? ''),
+        base: asBuiltinId(p.base),
+      })),
       startupId,
     };
   } catch {

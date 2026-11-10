@@ -18,6 +18,7 @@ import {
   type Session,
 } from './lib/storage.ts';
 import { findByText, loadLibrary, startupPrompt, storeLibrary, type PromptLibrary } from './lib/promptLibrary.ts';
+import { BUILTIN_PROMPTS, asBuiltinId, transcribePrompt } from './lib/prompts.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { PageView } from './components/PageView.tsx';
 import { PageList } from './components/PageList.tsx';
@@ -27,11 +28,20 @@ import { ExportPanel } from './components/ExportPanel.tsx';
 /* ---------------- settings ---------------- */
 
 const SETTINGS_KEY = 'ink2web-lite:settings';
-const DEFAULTS: Settings = { baseUrl: '/ollama', model: '', detail: 1344, enhance: true, locateFigures: true, numCtx: 8192 };
+const DEFAULTS: Settings = {
+  baseUrl: '/ollama',
+  model: '',
+  detail: 1344,
+  enhance: true,
+  locateFigures: true,
+  numCtx: 8192,
+  promptSet: 'everyday',
+};
 
 function loadSettings(): Settings {
   try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<Settings>) };
+    const s = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<Settings>) };
+    return { ...s, promptSet: asBuiltinId(s.promptSet) };
   } catch {
     return DEFAULTS;
   }
@@ -374,7 +384,7 @@ export default function App() {
           const result = await convertPage(next, s, thinking, ac.signal, (p) => {
             if (p.phase === 'locating') dispatch({ type: 'update', id: next.id, patch: { status: 'locating' } });
             else setLive({ id: next.id, text: p.text ?? '' });
-          }, customPromptRef.current);
+          }, customPromptRef.current ?? transcribePrompt(s.promptSet));
           dispatch({ type: 'update', id: next.id, patch: { ...result, status: 'done' } });
           setStatus(`Page ${n} done in ${((performance.now() - started) / 1000).toFixed(0)} s.`);
         } catch (e) {
@@ -611,7 +621,7 @@ export default function App() {
             </>
           )}{' '}
           <button type="button" onClick={() => setCustomPrompt(null)} disabled={running}>
-            Use the default prompt
+            Use the built-in prompt ({BUILTIN_PROMPTS[settings.promptSet].label})
           </button>
         </p>
       )}

@@ -76,3 +76,22 @@ assert.equal(builtinChanged(a), false);
 assert.equal(builtinChanged({ ...a, builtinHash: 'deadbeef' }), true);
 
 console.log('Saved-prompt tests passed.');
+
+/* 2.1.2: saved prompts remember which built-in prompt they were based on. */
+import { TRANSCRIBE_LARGE } from '../src/lib/prompts.ts';
+import { builtinHash } from '../src/lib/promptLibrary.ts';
+assert.equal(a.base, 'everyday', 'default base');
+const big = savePrompt(EMPTY_LIBRARY, 'Big', 'Prompt L $x$', 400, id, 'large').saved;
+assert.equal(big.base, 'large');
+assert.equal(big.builtinHash, builtinHash('large'));
+assert.equal(builtinHash('large'), hashText(TRANSCRIBE_LARGE.trim()));
+assert.notEqual(builtinHash('large'), BUILTIN_HASH);
+assert.equal(builtinChanged(big), false, 'compared against its own base');
+assert.equal(builtinChanged({ ...big, base: 'everyday' }), true);
+// A prompt saved by 2.1.1 (no base) is read as based on the everyday prompt.
+const old = parseLibrary(JSON.stringify({ prompts: [{ id: 'o', name: 'Old', text: 'T', savedAt: 1, builtinHash: BUILTIN_HASH }], startupId: 'o' }));
+assert.equal(old.prompts[0].base, 'everyday');
+assert.equal(builtinChanged(old.prompts[0]), false);
+assert.equal(parseLibrary(JSON.stringify({ prompts: [{ id: 'w', name: 'W', text: 'T', base: 'galaxy' }] })).prompts[0].base, 'everyday');
+assert.deepEqual(parseLibrary(JSON.stringify({ prompts: [big], startupId: null })).prompts[0], big, 'round trip keeps the base');
+console.log('Saved-prompt base tests passed.');

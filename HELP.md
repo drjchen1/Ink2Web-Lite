@@ -64,6 +64,8 @@ The dropdown lists every model installed in Ollama, with vision-capable models f
 
 Both run on an 8 GB Apple Silicon Mac. Other vision models may work, but the prompt and clean-up are tested only with these two. If you want to adapt the app to another model, see "Tuned for Qwen" in the README.
 
+**On a more powerful computer** you can run a larger vision model, such as `qwen3-vl:8b-instruct` (about 6 GB to download), and choose the **Larger models** prompt (below).
+
 **Tip for comparing:** convert one page with one model, switch models, then click **Convert again** on the same page.
 
 ### Use "instruct" models, not "thinking" ones
@@ -72,6 +74,21 @@ Both run on an 8 GB Apple Silicon Mac. Other vision models may work, but the pro
 - **Instruct builds** answer directly. They're much faster and more reliable for this job.
 
 **For Qwen3-VL**, the default tags (like `qwen3-vl:4b`) are thinking builds. Use `qwen3-vl:4b-instruct` instead. To check an installed model, run `ollama show <model>` and look for `thinking` under **Capabilities**.
+
+### Transcription prompt: everyday hardware or larger models
+
+Two built-in prompts tell the model how to transcribe a page:
+
+| Choice | For | What it does |
+|---|---|---|
+| **Everyday hardware** (default) | Small models on an ordinary laptop: `qwen3-vl:4b-instruct`, `qwen2.5vl:3b` | A short prompt with a few clear rules. Small models follow it reliably. |
+| **Larger models** | Models around 8B and up on a more powerful computer, e.g. `qwen3-vl:8b-instruct` | More detailed rules: aligned multi-line work, `cases` and matrices, lists and tables, the author's exact notation, look-alike characters (1/l, 0/O, u/v), margin notes in reading order, and figure descriptions written as alt text. |
+
+Both ask for the same formats, so notes, figures, editing, and export work the same either way. The choice is remembered and applies to pages you convert next; to compare, convert a page, switch, and click **Convert again**.
+
+If the chosen prompt doesn't fit the selected model's size, a hint suggests the other one. It's only a suggestion: a small model given the long prompt tends to drop rules, and a large model given the short one simply leaves some of its ability unused.
+
+A custom prompt (see [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt)) takes the place of this choice while it's in use.
 
 ### Image detail
 
@@ -113,13 +130,13 @@ Saving under an existing name updates that prompt (the app asks first). If the u
 
 Things to know:
 
-- **The built-in prompt never changes.** Your saved prompts are copies, so when an app update improves the built-in prompt you still get it. If the built-in has changed since you saved a prompt, a note under the **Prompt** list says so; select **Built-in (default)** to compare.
-- **Unsaved edits are temporary.** An edited prompt you haven't saved ends when you reload the app. **Reset to default** (or **Use the default prompt** in the banner) switches back at any time; with a start-up prompt set, it comes back next time the app opens.
-- **You'll always see when it's on:** a **Custom prompt in use** banner appears under the top bar (with the saved prompt's name, if it has one), and the prompt shows a **Saved: …** or **Custom (unsaved)** badge.
+- **The built-in prompts never change.** Your saved prompts are copies, so when an app update improves a built-in prompt you still get it. The **Prompt** list includes both built-in prompts (**Everyday hardware** and **Larger models**); load either to read it or to start an edit from it. A saved prompt remembers which built-in it was based on, and if that one has changed since you saved, a note under the **Prompt** list says so; select it to compare.
+- **Unsaved edits are temporary.** An edited prompt you haven't saved ends when you reload the app. **Reset to built-in** (or **Use the built-in prompt** in the banner) switches back to your chosen built-in prompt at any time; with a start-up prompt set, it comes back next time the app opens.
+- **You'll always see when it's on:** a **Custom prompt in use** banner appears under the top bar (with the saved prompt's name, if it has one), and the prompt shows a **Saved: …** or **Custom (unsaved)** badge (or **Built-in: …** when no custom prompt is in use).
 - **Keep the formats.** The app's clean-up depends on the prompt asking for `[[FIGURE: …]]` lines, `[[note: term | words]]` lines, and math in `$…$`. If an edit drops one, a warning explains what will stop working.
 - **Saved prompts belong to this browser.** They aren't in project files. To move one to another computer or make it part of the app, click **Copy prompt**, paste it into `src/lib/prompts.ts`, and run `npm test`.
 
-Ink2Web Lite is tuned for the built-in prompt; test an edited prompt on a few pages you know well before relying on it.
+Ink2Web Lite is tuned for the built-in prompts; test an edited prompt on a few pages you know well before relying on it.
 
 Your settings are remembered. Settings can't be changed while a page is converting.
 
@@ -427,7 +444,7 @@ These come from what small vision models can and can't do reliably. Each has a q
 | **"Cannot reach Ollama"** | Open the Ollama app (or run `ollama serve`), then click **Refresh**. |
 | **No models in the list** | Install one: `ollama pull qwen3-vl:4b-instruct`, then **Refresh**. |
 | **A model is very slow, or returns empty or cut-off text** | It's probably a thinking build. Use `qwen3-vl:4b-instruct`. |
-| **Results suddenly look different** | Check for the **Custom prompt in use** banner above **Convert all** (a saved prompt may be set to start with the app). Click **Use the default prompt**, then **Convert again**. |
+| **Results suddenly look different** | Check for the **Custom prompt in use** banner above **Convert all** (a saved prompt may be set to start with the app). Click **Use the built-in prompt**, then **Convert again**. Also check which built-in prompt is chosen under **Model and settings › Transcription prompt**. |
 | **The app seems to behave like an older version** | Check `grep version package.json`, restart `npm run dev`, and hard-refresh the browser tab (⌘⇧R). |
 | **A sentence from the notes is missing, and it's in a figure's alt text** | Select it in the alt text and click **Move to notes**. |
 | **A sentence from the notes is missing everywhere** | The model skipped it. Click the part before it and type it in, or try **Convert again** (with **High detail**). |
@@ -465,7 +482,7 @@ Yes: **model button › Advanced › Transcription prompt** shows the prompt, le
 Not quite: clicking opens that part's source, with a live preview right underneath and a toolbar for the common marks. This keeps the export exact and predictable.
 
 **Which models does it support?**
-It's tuned for qwen3-vl:4b-instruct (recommended) and qwen2.5vl:3b. Others may work but aren't tested.
+It's tuned for qwen3-vl:4b-instruct (recommended) and qwen2.5vl:3b. On a more powerful computer, try a larger model such as qwen3-vl:8b-instruct with the **Larger models** prompt. Others may work but aren't tested.
 
 **Will it fix mistakes in my notes?**
 It's told not to. Small models sometimes fix spelling anyway, so proofread.

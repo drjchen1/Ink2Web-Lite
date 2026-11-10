@@ -1,3 +1,5 @@
+import type { BuiltinPromptId } from './lib/prompts.ts';
+
 /** A rectangle in normalized page coordinates (0..1, origin top-left). */
 export interface Box {
   x: number;
@@ -76,6 +78,12 @@ export interface Settings {
   locateFigures: boolean;
   /** Context window passed to Ollama (must hold image tokens + output). */
   numCtx: number;
+  /**
+   * Which built-in transcription prompt to use (2.1.2): 'everyday' (short, for small
+   * models; the default) or 'large' (more detailed, for larger models). A custom
+   * prompt from Advanced settings takes precedence while it is in use.
+   */
+  promptSet: BuiltinPromptId;
 }
 
 export interface ModelInfo {

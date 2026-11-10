@@ -10,7 +10,7 @@ Everything runs on your own computer. The app uses a vision model running locall
 
 Ink2Web Lite is an **assistant, not a one-click converter**: the model does a first transcription, and you review and lightly edit it before exporting. Click any part of the preview to fix it in place; your work is saved as you go.
 
-Version 2.1. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 2.1.2. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
@@ -23,11 +23,13 @@ Ink2Web Lite is tuned and tested with two small Qwen vision models:
 | **Qwen3-VL 4B, instruct build** (recommended) | `ollama pull qwen3-vl:4b-instruct` | Best results; runs on an 8 GB Mac |
 | **Qwen2.5-VL 3B** | `ollama pull qwen2.5vl:3b` | Smaller, slightly less accurate |
 
+**Have a more powerful computer?** Choose the **Larger models** prompt under **Model and settings › Transcription prompt**. It's a second built-in prompt with more detailed rules (multi-line alignment, cases and matrices, lists and tables, look-alike characters, reading order, fuller figure descriptions) for vision models around 8B and up, such as `qwen3-vl:8b-instruct`. The short **Everyday hardware** prompt stays the default, and both use the same output formats, so everything after transcription works the same way.
+
 Other vision models may work but aren't tested. Each model has its own quirks, and the prompt is kept short on purpose: small models follow a few clear rules much better than a long list of model-specific exceptions.
 
 **Adapting it to another model?** You're welcome to. Two places to look:
 
-- **`src/lib/prompts.ts`**: the transcription prompt. Keep it short; every added rule competes with the important ones.
+- **`src/lib/prompts.ts`**: the transcription prompts. Keep the everyday one short; every added rule competes with the important ones. The larger-model prompt has more room.
 - **`src/lib/transcript.ts`**: the clean-up step that repairs model output after transcription. This is the better place for model-specific fixes, because it costs nothing in prompt length and helps every model.
 
 To try a prompt change without touching the code, click the **model button** in the app's top bar, then **Advanced › Transcription prompt**: it shows the prompt, lets you edit it for the next conversions, warns if a format the app depends on is missing, saves named versions in your browser (one of which can start with the app), and copies your version for pasting into `prompts.ts`.
@@ -37,6 +39,12 @@ Run `npm test` after changes, and compare a few pages you know well before and a
 ---
 
 ## What's new
+
+### 2.1.2
+- **A second built-in prompt for larger models.** Under **Model and settings › Transcription prompt**, choose **Everyday hardware** (the default: short and concrete, for small models like `qwen3-vl:4b-instruct`) or **Larger models** (more detailed rules for models around 8B and up). The choice is remembered and applies to pages you convert next.
+- The larger-model prompt asks for aligned multi-line work, `cases` and matrices, Markdown lists and tables, the author's exact notation, care with look-alike characters, reading order for margin notes, and figure descriptions written as alt text. Same formats as the everyday prompt, so clean-up, notes, figures, and export are unchanged.
+- A hint suggests the other prompt when the chosen one doesn't fit the selected model's size (it never switches by itself).
+- The prompt inspector lists both built-in prompts; a saved prompt remembers which one it was based on, and the "built-in has changed" note compares against that one.
 
 ### 2.1.1
 - **Saved prompts.** Under **Model › Advanced › Transcription prompt**, an edited prompt can be saved under a name (kept in this browser). Pick a saved prompt from the **Prompt** list to load it, update it by saving under the same name, or delete it.

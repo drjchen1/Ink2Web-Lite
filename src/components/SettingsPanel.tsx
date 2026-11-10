@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ModelInfo, Settings } from '../types.ts';
 import { PromptInspector } from './PromptInspector.tsx';
 import type { PromptLibrary } from '../lib/promptLibrary.ts';
+import { BUILTIN_IDS, BUILTIN_PROMPTS, promptSizeHint } from '../lib/prompts.ts';
 
 interface Props {
   settings: Settings;
@@ -11,7 +12,7 @@ interface Props {
   disabled: boolean;
   onChange: (patch: Partial<Settings>) => void;
   onRefresh: () => void;
-  /** Transcription prompt in use (null = built-in). */
+  /** Custom transcription prompt in use (null = the built-in one chosen in settings.promptSet). */
   customPrompt: string | null;
   onCustomPrompt: (prompt: string | null) => void;
   /** Saved prompts; onPromptLibrary returns false if the browser refused to store them. */
@@ -80,7 +81,7 @@ export function SettingsPanel({
             ) : selected?.vision === false ? (
               <span className="error-text">This model can’t read images. Pick a vision model (e.g. pull one with “ollama pull …”).</span>
             ) : (
-              'Tuned for qwen3-vl:4b-instruct and qwen2.5vl:3b. Other vision models may work but aren’t tested.'
+              'Tuned for qwen3-vl:4b-instruct and qwen2.5vl:3b. On a more powerful computer, try a larger model with the Larger models prompt below.'
             )}
           </p>
         </div>
@@ -102,6 +103,32 @@ export function SettingsPanel({
           <p className="hint">Higher detail reads small handwriting, brace notes, and labels better but takes longer.</p>
         </div>
       </div>
+
+      <fieldset className="field prompt-set" disabled={disabled} aria-describedby="prompt-set-help">
+        <legend>Transcription prompt</legend>
+        {BUILTIN_IDS.map((id) => (
+          <label key={id} className="prompt-choice">
+            <input
+              type="radio"
+              name="prompt-set"
+              value={id}
+              checked={settings.promptSet === id}
+              onChange={() => onChange({ promptSet: id })}
+            />{' '}
+            <span>
+              <strong>{BUILTIN_PROMPTS[id].label}</strong>
+              {id === 'everyday' ? ' (default)' : ''}
+              <span className="hint">{BUILTIN_PROMPTS[id].hint}</span>
+            </span>
+          </label>
+        ))}
+        <p id="prompt-set-help" className="hint" role="status">
+          {customPrompt !== null
+            ? 'A custom prompt is in use (Advanced › Transcription prompt); this choice applies once you switch back to the built-in prompt.'
+            : promptSizeHint(settings.promptSet, selected?.sizeGB) ||
+              'Applies to pages you convert next. Converted pages keep their text until you convert them again.'}
+        </p>
+      </fieldset>
 
       <div className="checks">
         <label>
@@ -161,6 +188,8 @@ export function SettingsPanel({
         <PromptInspector
           customPrompt={customPrompt}
           onCustomPrompt={onCustomPrompt}
+          promptSet={settings.promptSet}
+          onPromptSet={(promptSet) => onChange({ promptSet })}
           library={promptLibrary}
           onLibrary={onPromptLibrary}
           disabled={disabled}

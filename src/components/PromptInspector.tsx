@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { TRANSCRIBE_USER, isDefaultPrompt, promptIssues } from '../lib/prompts.ts';
+import { useEffect, useState } from 'react';
+import { BUILTIN_IDS, BUILTIN_PROMPTS, builtinOf, promptIssues, type BuiltinPromptId } from '../lib/prompts.ts';
 import {
   builtinChanged,
   deletePrompt,
@@ -11,9 +11,12 @@ import {
 } from '../lib/promptLibrary.ts';
 
 interface Props {
-  /** The prompt in use, or null when the built-in one is used. */
+  /** The custom prompt in use, or null when the chosen built-in one is used. */
   customPrompt: string | null;
   onCustomPrompt: (prompt: string | null) => void;
+  /** The chosen built-in prompt (2.1.2: everyday hardware or larger models). */
+  promptSet: BuiltinPromptId;
+  onPromptSet: (id: BuiltinPromptId) => void;
   /** Saved prompts (2.1.1). */
   library: PromptLibrary;
   /** Stores the library; returns false if the browser refused to save it. */
@@ -21,29 +24,48 @@ interface Props {
   disabled: boolean;
 }
 
-const BUILTIN = '';
+/** Editor source ids for the built-in prompts (saved prompts use their own ids). */
+const builtinKey = (id: BuiltinPromptId) => `builtin:${id}`;
+const keyToBuiltin = (key: string) => BUILTIN_IDS.find((id) => builtinKey(id) === key);
 
 /**
  * Shows the transcription prompt sent to the model and lets the user try an edited
  * version. "Use this prompt" applies the editor's text to pages converted from now on.
  * Since 2.1.1, a prompt can also be saved under a name in this browser, and one saved
- * prompt can be set to start with the app. The built-in prompt itself never changes.
+ * prompt can be set to start with the app. The built-in prompts themselves never change.
+ *
+ * Since 2.1.2 there are two built-in prompts (chosen above, in the main settings). Either
+ * can be loaded here to read or start an edit from; a saved prompt remembers which one
+ * it was based on.
  */
-export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibrary, disabled }: Props) {
+export function PromptInspector({ customPrompt, onCustomPrompt, promptSet, onPromptSet, library, onLibrary, disabled }: Props) {
   const inUse = findByText(library, customPrompt);
   const [open, setOpen] = useState(false);
-  /** The saved prompt the editor was loaded from ('' = built-in). */
-  const [sourceId, setSourceId] = useState(inUse?.id ?? BUILTIN);
-  const [draft, setDraft] = useState(customPrompt ?? TRANSCRIBE_USER);
+  /** Where the editor's text came from: a built-in key or a saved prompt's id. */
+  const [sourceId, setSourceId] = useState(inUse?.id ?? builtinKey(promptSet));
+  const [draft, setDraft] = useState(customPrompt ?? BUILTIN_PROMPTS[promptSet].text);
   const [name, setName] = useState(inUse?.name ?? '');
   const [note, setNote] = useState('');
 
   const source = library.prompts.find((p) => p.id === sourceId);
-  const sourceText = source?.text ?? TRANSCRIBE_USER;
+  /** The built-in prompt the editor's text is based on. */
+  const base: BuiltinPromptId = source?.base ?? keyToBuiltin(sourceId) ?? promptSet;
+  const sourceText = source?.text ?? BUILTIN_PROMPTS[base].text;
   const issues = promptIssues(draft);
-  const changed = !isDefaultPrompt(draft);
-  const applied = customPrompt !== null && draft === customPrompt;
+  /** The built-in prompt the editor holds, unedited, if any. */
+  const draftBuiltin = builtinOf(draft);
+  const applied = customPrompt !== null ? draft === customPrompt : draftBuiltin === promptSet;
+  const chosen = BUILTIN_PROMPTS[promptSet];
   const target = findByName(library, name);
+
+  // Choosing the other built-in prompt (in the main settings) while the editor shows an
+  // unedited built-in prompt shows the newly chosen one.
+  useEffect(() => {
+    if (customPrompt === null && keyToBuiltin(sourceId) && builtinOf(draft)) {
+      setSourceId(builtinKey(promptSet));
+      setDraft(BUILTIN_PROMPTS[promptSet].text);
+    }
+  }, [promptSet]); // only when the choice changes
   const canSave = !disabled && !!name.trim() && !!draft.trim() && !(target && target.text === draft);
 
   const flash = (msg: string) => {
@@ -53,10 +75,16 @@ export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibra
   const store = (lib: PromptLibrary, ok: string) =>
     flash(onLibrary(lib) ? ok : 'This browser didn’t allow saving (private window or storage full). Use Copy prompt to keep it.');
 
-  const use = () => onCustomPrompt(changed ? draft : null);
+  /** An unedited built-in prompt becomes the chosen built-in; anything else is a custom prompt. */
+  const use = () => {
+    if (draftBuiltin) {
+      onPromptSet(draftBuiltin);
+      onCustomPrompt(null);
+    } else onCustomPrompt(draft);
+  };
   const reset = () => {
-    setDraft(TRANSCRIBE_USER);
-    setSourceId(BUILTIN);
+    setDraft(chosen.text);
+    setSourceId(builtinKey(promptSet));
     setName('');
     onCustomPrompt(null);
   };
@@ -72,8 +100,9 @@ export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibra
   const load = (id: string) => {
     if (draft !== sourceText && !window.confirm('Discard your edits to the prompt in the editor?')) return;
     const p = library.prompts.find((q) => q.id === id);
-    setSourceId(p?.id ?? BUILTIN);
-    setDraft(p?.text ?? TRANSCRIBE_USER);
+    const b = keyToBuiltin(id) ?? promptSet;
+    setSourceId(p?.id ?? builtinKey(b));
+    setDraft(p?.text ?? BUILTIN_PROMPTS[b].text);
     setName(p?.name ?? '');
   };
 
@@ -81,7 +110,7 @@ export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibra
     const old = findByName(library, name);
     if (old && !window.confirm(`Replace the saved prompt “${old.name}” with the text in the editor?`)) return;
     try {
-      const { lib, saved } = savePrompt(library, name, draft, Date.now());
+      const { lib, saved } = savePrompt(library, name, draft, Date.now(), undefined, base);
       store(lib, old ? `Updated “${saved.name}”.` : `Saved “${saved.name}”.`);
       setSourceId(saved.id);
       setName(saved.name);
@@ -95,18 +124,18 @@ export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibra
   const remove = () => {
     if (!source || !window.confirm(`Delete the saved prompt “${source.name}”?`)) return;
     store(deletePrompt(library, source.id), `Deleted “${source.name}”.${customPrompt === source.text ? ' It stays in use until you switch or reload.' : ''}`);
-    setSourceId(BUILTIN);
+    setSourceId(builtinKey(source.base));
   };
 
   const toggleStartup = (on: boolean) => {
     if (!source) return;
     store(
       setStartup(library, on ? source.id : null),
-      on ? `“${source.name}” will be in use when the app opens.` : 'The built-in prompt will be in use when the app opens.',
+      on ? `“${source.name}” will be in use when the app opens.` : 'The chosen built-in prompt will be in use when the app opens.',
     );
   };
 
-  const badge = customPrompt === null ? 'Default' : inUse ? `Saved: ${inUse.name}` : 'Custom (unsaved)';
+  const badge = customPrompt === null ? `Built-in: ${chosen.label}` : inUse ? `Saved: ${inUse.name}` : 'Custom (unsaved)';
 
   return (
     <div className="field prompt-inspector">
@@ -120,8 +149,9 @@ export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibra
         </button>
       </div>
       <p className="hint">
-        The instructions the model gets for each page. An edited prompt applies to pages you convert next. Save it under a name to
-        keep it in this browser. Ink2Web Lite is tuned for the built-in prompt, which never changes.
+        The instructions the model gets for each page. An edited prompt applies to pages you convert next and replaces the
+        built-in choice above while it’s in use. Save it under a name to keep it in this browser. The built-in prompts never
+        change.
       </p>
 
       {open && (
@@ -129,7 +159,12 @@ export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibra
           <div className="row prompt-source">
             <label htmlFor="prompt-source">Prompt</label>
             <select id="prompt-source" value={sourceId} disabled={disabled} onChange={(e) => load(e.target.value)}>
-              <option value={BUILTIN}>Built-in (default)</option>
+              {BUILTIN_IDS.map((id) => (
+                <option key={id} value={builtinKey(id)}>
+                  Built-in: {BUILTIN_PROMPTS[id].label}
+                  {id === 'everyday' ? ' (default)' : ''}
+                </option>
+              ))}
               {library.prompts.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -156,8 +191,9 @@ export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibra
           )}
           {source && builtinChanged(source) && (
             <p className="hint">
-              The built-in prompt has been updated since “{source.name}” was saved. Compare them (select Built-in) in case the
-              update fixes something your version also changes.
+              The built-in {BUILTIN_PROMPTS[source.base].label} prompt has been updated since “{source.name}” was saved. Compare
+              them (select Built-in: {BUILTIN_PROMPTS[source.base].label}) in case the update fixes something your version also
+              changes.
             </p>
           )}
 
@@ -189,11 +225,15 @@ export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibra
             </div>
           )}
           <div className="actions">
-            <button type="button" className="primary" onClick={use} disabled={disabled || applied || (!changed && customPrompt === null)}>
-              {changed ? 'Use this prompt' : 'Use the default'}
+            <button type="button" className="primary" onClick={use} disabled={disabled || applied || !draft.trim()}>
+              {draftBuiltin ? `Use the built-in ${BUILTIN_PROMPTS[draftBuiltin].label} prompt` : 'Use this prompt'}
             </button>
-            <button type="button" onClick={reset} disabled={disabled || (!changed && customPrompt === null && sourceId === BUILTIN)}>
-              Reset to default
+            <button
+              type="button"
+              onClick={reset}
+              disabled={disabled || (customPrompt === null && draft === chosen.text && sourceId === builtinKey(promptSet))}
+            >
+              Reset to built-in
             </button>
             <button type="button" onClick={copy}>
               Copy prompt
@@ -222,11 +262,9 @@ export function PromptInspector({ customPrompt, onCustomPrompt, library, onLibra
             {note ||
               (applied
                 ? 'In use for the next conversions.'
-                : changed
-                  ? 'Edited, not in use yet.'
-                  : customPrompt !== null
-                    ? 'The default text, but a custom prompt is still in use.'
-                    : '')}
+                : draftBuiltin
+                  ? `The built-in ${BUILTIN_PROMPTS[draftBuiltin].label} prompt, not in use.`
+                  : 'Edited, not in use yet.')}
           </p>
           <p className="hint">
             Saved prompts stay in this browser only. To share one or make it part of the app, use <code>Copy prompt</code>, paste it

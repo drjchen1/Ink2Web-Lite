@@ -311,3 +311,10 @@ dialog.dialog::backdrop { background: rgba(0, 0, 0, .45); }
 }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+
+/* Built-in prompt choice (2.1.2) */
+.prompt-set { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem .25rem; margin: .75rem 0; }
+.prompt-set legend { font-weight: 600; padding: 0 .25rem; }
+.prompt-set .prompt-choice { display: flex; align-items: flex-start; gap: .4rem; font-weight: 400; margin: .35rem 0; }
+.prompt-set .prompt-choice input { margin-top: .25rem; }
+.prompt-set .prompt-choice .hint { display: block; margin: .1rem 0 0; }
