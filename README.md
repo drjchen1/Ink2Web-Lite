@@ -10,7 +10,7 @@ Everything runs on your own computer. The app uses a vision model running locall
 
 Ink2Web Lite is an **assistant, not a one-click converter**: the model does a first transcription, and you review and lightly edit it before exporting. Click any part of the preview to fix it in place; your work is saved as you go.
 
-Version 2.1.2. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 2.2.2. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
@@ -39,6 +39,20 @@ Run `npm test` after changes, and compare a few pages you know well before and a
 ---
 
 ## What's new
+
+### 2.2.2
+- Redraw specs: number fields accept constants such as `"pi/2"`, `"2pi"`, and `"e"`, and the alt text says π exactly. Ticks without labels are labeled π, 2π, … automatically. Simple multiples of e are recognized in alt text.
+- Figure panel: the crop tools sit with the layout again; **Redraw from the math** is collapsed until used; inside it, the steps follow the workflow (compare, edit the spec with its problems listed right under it, then choose **In the document** at the end).
+- Fixed: closing the panel right after typing in the spec no longer drops the last edit. Spec problems no longer interrupt screen readers on every pause, and the alt text box isn't flagged as missing when only the redraw is shown.
+
+### 2.2.1
+- Redraw: a warning when the equation in `from` doesn't match the curve that is drawn (the drawing follows `expr`, so editing only `from` changes nothing), and a note under the spec explaining that edits apply as you type.
+
+### 2.2.0
+- **Redraw figures from the math.** A graph of a stated function, a region between curves, or a phase plane can be redrawn exactly from the equation in the notes, with alt text computed from the math (zeros, jumps, asymptotes, intersections, equilibria and their types, what each trajectory does). In the figure panel, **Redraw with the model** reads the figure and the notes around it and writes a small spec; you can also write or edit the spec yourself.
+- **The image stays the default.** Choose **Image**, **Redrawn**, or **Both** (the redraw with the original sketch under it) for each figure. A spec with errors never replaces the image.
+- Redrawn figures are inline SVG in the export: sharp at any zoom, printable, and readable by screen readers. Project files keep the spec.
+- Developer preview of the engine: `figure-lab.html` (see `docs/REDRAW.md`).
 
 ### 2.1.2
 - **A second built-in prompt for larger models.** Under **Model and settings › Transcription prompt**, choose **Everyday hardware** (the default: short and concrete, for small models like `qwen3-vl:4b-instruct`) or **Larger models** (more detailed rules for models around 8B and up). The choice is remembered and applies to pages you convert next.

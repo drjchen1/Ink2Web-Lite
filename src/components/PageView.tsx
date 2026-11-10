@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Box, Figure, Page } from '../types.ts';
 import { pageHtml, wrapEndLines } from '../lib/exportHtml.ts';
-import { altTextIssue, blockText, commitBlock, moveAltToNotes, pageBlocks, splitBlocks, type Block } from '../lib/editing.ts';
+import { blockText, pageIssues, commitBlock, moveAltToNotes, pageBlocks, splitBlocks, type Block } from '../lib/editing.ts';
 import { latexWarnings } from '../lib/markdown.ts';
 import { cropFigure, pageLayout, snapToInk } from '../lib/images.ts';
 import { defaultLayout, overlapRatio } from '../lib/layout.ts';
@@ -12,6 +12,7 @@ import { Preview } from './Preview.tsx';
 import { BlockEditor } from './BlockEditor.tsx';
 import { MarkupToolbar } from './MarkupToolbar.tsx';
 import { FigurePanel } from './FigurePanel.tsx';
+import type { RedrawOutcome } from '../lib/redraw/conversation.ts';
 
 export const STATUS: Record<Page['status'], string> = {
   idle: 'Not converted',
@@ -48,6 +49,8 @@ interface Props {
   onGo: (dir: -1 | 1) => void;
   /** Re-reads a region of the original page; resolves with the proposed text. */
   onReread: (page: Page, box: Box, signal: AbortSignal) => Promise<string>;
+  /** Asks the model for a figure's redraw spec (2.2); resolves with a proposal. */
+  onRedraw: (page: Page, fig: Figure, signal: AbortSignal) => Promise<RedrawOutcome>;
 }
 
 /** The text block open for editing in place. */
@@ -80,7 +83,7 @@ function useDebounced<T>(value: T, ms: number): T {
  * document on the right. Text blocks and figures open in place when clicked.
  */
 export const PageView = memo(function PageView(props: Props) {
-  const { page, index, count, liveText, canConvert, busy, focusFigure, onUpdate, onConvert, onUnqueue, onRemove, onMove, onGo, onReread } =
+  const { page, index, count, liveText, canConvert, busy, focusFigure, onUpdate, onConvert, onUnqueue, onRemove, onMove, onGo, onReread, onRedraw } =
     props;
   const pageNo = index + 1;
   const [tab, setTab] = useState<'preview' | 'edit'>('preview');
@@ -117,6 +120,11 @@ export const PageView = memo(function PageView(props: Props) {
   const warnings = useMemo(() => latexWarnings(source), [source]);
   const positions = useMemo(() => markerUnitIndex(page.source), [page.source]);
   const unitCount = useMemo(() => sourceUnits(page.source).length, [page.source]);
+  /** Figures with something to check (same rules as the export checklist). */
+  const figureChecks = useMemo(
+    () => new Set(pageIssues({ source: '', figures: page.figures }).flatMap((i) => (i.figure === undefined ? [] : [i.figure]))),
+    [page.figures],
+  );
 
   // A conversion replaces the page, so close whatever is open.
   useEffect(() => {
@@ -360,6 +368,18 @@ export const PageView = memo(function PageView(props: Props) {
       onInsert={() => onUpdate(page.id, { source: `${latest.current.source.trimEnd()}\n\n[[FIGURE ${activeFig.id}]]\n` })}
       onDelete={() => removeFigure(activeFig.id)}
       onMoveToNotes={(ta) => moveToNotes(activeFig, ta)}
+      onRedraw={(signal) => {
+        const p = latest.current;
+        const f = p.figures.find((x) => x.id === activeFig.id) ?? activeFig;
+        return onRedraw(p, f, signal);
+      }}
+      redrawBlocked={
+        !canConvert
+          ? 'Choose a model first (Model and settings).'
+          : busy === 'converting'
+            ? 'The model is converting pages; try again when it finishes.'
+            : ''
+      }
       onClose={closeFigure}
     />
   );
@@ -409,7 +429,7 @@ export const PageView = memo(function PageView(props: Props) {
       <div className="image-tools" role="toolbar" aria-label={`Figures on page ${pageNo}`}>
         <span className="tools-label">Figures</span>
         {page.figures.map((f) => {
-          const check = f.needsReview || !f.alt.trim() || !!altTextIssue(f.alt);
+          const check = figureChecks.has(f.id);
           return (
             <button
               key={f.id}

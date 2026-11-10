@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import type { Box, ModelInfo, Page, PageStatus, Settings } from './types.ts';
+import type { Box, Figure, ModelInfo, Page, PageStatus, Settings } from './types.ts';
 import { listModels } from './lib/ollama.ts';
 import { ACCEPT, loadFile } from './lib/images.ts';
-import { convertPage, rereadRegion } from './lib/pipeline.ts';
+import { convertPage, redrawFigure, rereadRegion } from './lib/pipeline.ts';
 import { buildDocument, downloadHtml, looksLikeFileName } from './lib/exportHtml.ts';
 import {
   PROJECT_EXT,
@@ -449,6 +449,15 @@ export default function App() {
     setRereading((n) => n + 1);
     return rereadRegion(page, box, s, thinking, signal).finally(() => setRereading((n) => n - 1));
   }, []);
+  /** Asks the model for a figure's redraw spec (2.2). Changes nothing by itself. */
+  const onRedraw = useCallback((page: Page, fig: Figure, signal: AbortSignal) => {
+    const s = settingsRef.current;
+    if (!s.model) return Promise.reject(new Error('Choose a model first.'));
+    if (runningRef.current) return Promise.reject(new Error('Wait for the conversion to finish, then try again.'));
+    const thinking = modelsRef.current.find((m) => m.name === s.model)?.thinking ?? false;
+    setRereading((n) => n + 1);
+    return redrawFigure(page, fig, s, thinking, signal).finally(() => setRereading((n) => n - 1));
+  }, []);
   const onMove = useCallback((id: string, dir: -1 | 1) => dispatch({ type: 'move', id, dir }), []);
   const onRemove = useCallback((id: string) => {
     const all = pagesRef.current;
@@ -695,6 +704,7 @@ export default function App() {
               onMove={onMove}
               onGo={onGo}
               onReread={onReread}
+              onRedraw={onRedraw}
             />
           ) : (
             <section className="welcome" aria-labelledby="welcome-h">

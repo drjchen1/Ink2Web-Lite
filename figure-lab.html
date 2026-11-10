@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Ink2Web Lite · Figure lab</title>
+    <style>
+      body { font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; margin: 0; color: #1a1a1a; background: #f6f6f4; }
+      header { padding: .75rem 1.25rem; background: #fff; border-bottom: 1px solid #ddd; }
+      header h1 { font-size: 1.15rem; margin: 0; }
+      header p { margin: .2rem 0 0; color: #555; font-size: .9rem; }
+      main { display: grid; grid-template-columns: minmax(20rem, 1fr) minmax(20rem, 1fr); gap: 1rem; padding: 1rem 1.25rem; }
+      @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+      section { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: .75rem 1rem; min-width: 0; }
+      h2 { font-size: 1rem; margin: 0 0 .5rem; }
+      label { font-weight: 600; }
+      select, button { font: inherit; padding: .3rem .6rem; }
+      textarea { width: 100%; box-sizing: border-box; min-height: 26rem; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: .5rem; border: 1px solid #bbb; border-radius: 6px; }
+      .row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+      #preview svg { max-width: 100%; height: auto; border: 1px solid #eee; }
+      #messages:empty { display: none; }
+      .error { background: #fdecea; border: 1px solid #f5c2bd; padding: .5rem .75rem; border-radius: 6px; margin: .5rem 0; }
+      .warning { background: #fff7e0; border: 1px solid #f0dc9c; padding: .5rem .75rem; border-radius: 6px; margin: .5rem 0; }
+      .error ul, .warning ul { margin: .25rem 0 0; padding-left: 1.25rem; }
+      #alt-short { font-weight: 600; }
+      #facts table { border-collapse: collapse; font-size: .9rem; }
+      #facts th, #facts td { border-bottom: 1px solid #eee; padding: .2rem .5rem; text-align: left; vertical-align: top; }
+      details { margin-top: .75rem; }
+      summary { cursor: pointer; font-weight: 600; }
+      code { background: #f1f1ee; padding: 0 .2rem; border-radius: 3px; }
+      .hint { color: #555; font-size: .9rem; }
+      :focus-visible { outline: 2px solid #0072b2; outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Figure lab</h1>
+      <p>Write a redraw spec on the left; the figure, its alt text, and the computed facts update as you type. Developer preview: nothing here touches your project.</p>
+    </header>
+    <main>
+      <section aria-labelledby="spec-h">
+        <h2 id="spec-h">Spec</h2>
+        <div class="row">
+          <label for="example">Example</label>
+          <select id="example"></select>
+        </div>
+        <textarea id="spec" spellcheck="false" aria-describedby="spec-help"></textarea>
+        <p id="spec-help" class="hint">JSON. Expressions use calculator syntax: <code>exp(-t)*cos(3t)</code>, <code>u(t-2)</code>, <code>sqrt(x)</code>, <code>pi</code>. Number fields also take constants in quotes: <code>"pi/2"</code>, <code>"2pi"</code>, <code>"e"</code>.</p>
+        <details>
+          <summary>Shared fields</summary>
+          <ul>
+            <li><code>kind</code>: <code>"graph"</code>, <code>"region"</code>, or <code>"phase"</code>; <code>from</code>: the equation on the page (required)</li>
+            <li><code>window</code>: <code>{"x": [a, b], "y": [c, d]}</code>; either may be left out for automatic (graphs need <code>x</code>)</li>
+            <li><code>axes</code>: <code>{"x": "t", "y": "y"}</code>; the independent axis's label is the variable when it is one letter (else set <code>var</code>)</li>
+            <li><code>points</code>: <code>{"at": [x, y]}</code> or <code>{"on": {"curve": …, "at": …}}</code>, with optional <code>label</code>, <code>fill</code> (<code>"closed"</code>/<code>"open"</code>), <code>pos</code> (<code>"above"</code>/<code>"below"</code>/<code>"left"</code>/<code>"right"</code>)</li>
+            <li><code>labels</code>: <code>{"at": [x, y], "text": …}</code>; <code>ticks</code>: <code>{"x": [0, {"at": 3.14159265, "label": "π"}]}</code></li>
+            <li>Functions: sin cos tan sec csc cot asin acos atan sinh cosh tanh exp ln log (natural) log10 log2 sqrt cbrt abs sign floor ceil min max, and <code>u</code>/<code>H</code> (unit step, 1 at 0).</li>
+          </ul>
+        </details>
+        <details>
+          <summary>Graph fields</summary>
+          <ul>
+            <li><code>curves</code>: <code>{"expr": …, "label": …, "style": "solid" | "dashed" | "dotted"}</code> or <code>{"pieces": [{"expr": …, "on": [a, b], "ends": ["closed", "open"]}]}</code></li>
+            <li><code>impulses</code>: <code>{"at": x, "size": 1, "label": "δ(t − 2)"}</code>; points <code>"on": {"curve": 1, "at": x}</code></li>
+          </ul>
+        </details>
+        <details>
+          <summary>Region fields</summary>
+          <ul>
+            <li>Vertical slices: <code>top</code>, <code>bottom</code> (default <code>0</code>), as expressions in x. Horizontal slices: <code>right</code>, <code>left</code> (default <code>0</code>) in y, or set <code>"dir": "dy"</code>.</li>
+            <li>A boundary may be <code>{"expr": …, "label": "y = √x"}</code>.</li>
+            <li><code>between</code>: <code>[a, b]</code>, or <code>"intersections"</code> (default)</li>
+            <li><code>slice</code>: <code>{"at": 0.5, "label": "Δx", "width": 0.05}</code>; <code>markIntersections</code>: <code>true</code>; <code>area</code>: <code>true</code> puts the area in the alt text</li>
+            <li>Points <code>"on": {"curve": "top", "at": x}</code></li>
+          </ul>
+        </details>
+        <details>
+          <summary>Phase-plane fields</summary>
+          <ul>
+            <li><code>system</code>: <code>{"x": "y", "y": "-2x - 3y"}</code>, keyed by the axis variables (no <code>t</code>), or <code>A</code>: <code>[[0, 1], [-2, -3]]</code></li>
+            <li><code>vars</code>: <code>["x", "y"]</code> when the axis labels aren’t single letters; one-character labels such as θ are used in the text</li>
+            <li><code>show</code>: any of <code>"field"</code>, <code>"equilibria"</code> (default: these two), <code>"nullclines"</code>, <code>"eigenvectors"</code></li>
+            <li><code>trajectories</code>: <code>{"start": [x, y], "direction": "both" | "forward" | "backward", "label": …}</code></li>
+            <li><code>labelEquilibria</code>: <code>true</code> writes their coordinates; <code>window</code> may be left out (centred on the equilibria, nearly equal scales)</li>
+          </ul>
+        </details>
+      </section>
+      <section aria-labelledby="out-h">
+        <h2 id="out-h">Redrawn</h2>
+        <div id="messages" aria-live="polite"></div>
+        <div id="preview"></div>
+        <div class="row">
+          <button type="button" id="copy">Copy SVG</button>
+          <span id="copied" class="hint" aria-live="polite"></span>
+        </div>
+        <h2>Alt text</h2>
+        <p id="alt-short"></p>
+        <p id="alt-long"></p>
+        <h2>Computed facts</h2>
+        <div id="facts"></div>
+      </section>
+    </main>
+    <script type="module" src="/src/figure-lab.ts"></script>
+  </body>
+</html>

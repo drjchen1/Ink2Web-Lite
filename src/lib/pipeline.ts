@@ -1,5 +1,9 @@
 import type { Box, Figure, Page, Settings } from '../types.ts';
-import { chat } from './ollama.ts';
+import { chat, type ChatMessage } from './ollama.ts';
+import { REDRAW_SCHEMA, REDRAW_SYSTEM, notesAround, redrawPrompt } from './redraw/prompt.ts';
+import { specConversation, type RedrawOutcome } from './redraw/conversation.ts';
+
+export type { RedrawOutcome };
 import { cropBase64, cropFigure, modelImage, pageLayout, regionImage, snapToInk, squareImage } from './images.ts';
 import { DESCRIBE_USER, LOCATE_SCHEMA, REREAD_USER, TRANSCRIBE_SYSTEM, locatePrompt, transcribePrompt } from './prompts.ts';
 import { defaultLayout, matchFigures } from './layout.ts';
@@ -201,4 +205,44 @@ export async function rereadRegion(
     },
   });
   return cleanReread(looped ? trimRepetition(raw) : raw);
+}
+
+/* ---------------------------------------------------------------------------------
+ * Redraw from the math (2.2)
+ * ------------------------------------------------------------------------------- */
+
+/**
+ * Asks the model to describe a figure's mathematics as a redraw spec, from the crop
+ * and the notes around the figure. A spec that fails the checks goes back to the
+ * model once, with the problems listed. Returns a proposal; nothing changes on the
+ * page until the user chooses to show the redraw.
+ */
+export async function redrawFigure(
+  page: Page,
+  fig: Figure,
+  settings: Settings,
+  thinking: boolean,
+  signal: AbortSignal,
+): Promise<RedrawOutcome> {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: REDRAW_SYSTEM },
+    {
+      role: 'user',
+      content: redrawPrompt(notesAround(page.source, fig.id)),
+      images: [await regionImage(page.image, fig.box, settings.enhance)],
+    },
+  ];
+  return specConversation(
+    (msgs) =>
+      chat({
+        baseUrl: settings.baseUrl,
+        model: settings.model,
+        disableThinking: thinking,
+        signal,
+        format: REDRAW_SCHEMA,
+        options: { temperature: 0, num_ctx: settings.numCtx, num_predict: 900 },
+        messages: msgs,
+      }),
+    messages,
+  );
 }

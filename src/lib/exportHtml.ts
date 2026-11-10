@@ -1,6 +1,7 @@
 import type { Figure, Page } from '../types.ts';
 import { CLEAR_MARK, INK_COLORS, escapeHtml, markdownToHtml, type RenderContext } from './markdown.ts';
 import { MARKER_LINE, sourceUnits } from './transcript.ts';
+import { placeSvg, redrawState, shownAs } from './figureRedraw.ts';
 
 /** Renders figures and pages to HTML; builds the standalone, accessible export. */
 
@@ -59,9 +60,19 @@ figure.fig.wrap~.math-display,figure.fig.wrap~.table-wrap{min-width:min(14rem,10
 ${Object.entries(INK_COLORS)
   .map(([name, hex]) => `.ink-${name}{color:${hex}}`)
   .join('\n')}
+figure.fig svg.redraw{display:block;width:100%;height:auto;border:1px solid #d0d0d0;border-radius:4px;background:#fff}
+figure.fig details.fig-orig{margin-top:.4rem}
+figure.fig details.fig-orig summary{cursor:pointer;color:#555;font-size:.95rem}
+figure.fig details.fig-orig img{margin-top:.4rem}
 strong.ul{font-weight:600;text-decoration:underline;text-decoration-thickness:.12em;text-underline-offset:.2em}
 `;
 
+/**
+ * One figure. Shown as the cropped image, the redraw (2.2: an inline SVG whose
+ * <title>/<desc> carry alt text computed from the math), or both (the redraw, then the
+ * original sketch in a collapsed "Original sketch" section). A redraw whose spec has
+ * errors falls back to the image.
+ */
 export function figureHtml(fig: Figure | undefined, pageNo: number): string {
   if (!fig) return '';
   const alt = escapeHtml(polishAlt(fig.alt));
@@ -69,7 +80,18 @@ export function figureHtml(fig: Figure | undefined, pageNo: number): string {
   const align = fig.align ?? 'center';
   const wrap = fig.wrap && align !== 'center' ? ' wrap' : '';
   const width = Math.min(100, Math.max(15, Math.round(fig.width ?? 100)));
-  return `<figure id="fig-${pageNo}-${fig.id}" class="fig align-${align}${wrap}" style="--w:${width}%"><img src="${fig.src}" alt="${alt}">${caption}</figure>`;
+  const id = `fig-${pageNo}-${fig.id}`;
+  const show = shownAs(fig);
+  const state = redrawState(fig);
+  let body = `<img src="${fig.src}" alt="${alt}">`;
+  if (show !== 'image' && state.kind === 'ready') {
+    body = placeSvg(state.result.svg, id);
+    if (show === 'both') {
+      const origAlt = escapeHtml(`Original hand-drawn sketch. ${polishAlt(fig.alt)}`);
+      body += `<details class="fig-orig"><summary>Original sketch</summary><img src="${fig.src}" alt="${origAlt}"></details>`;
+    }
+  }
+  return `<figure id="${id}" class="fig align-${align}${wrap}" style="--w:${width}%">${body}${caption}</figure>`;
 }
 
 /**

@@ -1,3 +1,4 @@
+import { redrawState } from './figureRedraw.ts';
 import type { Page } from '../types.ts';
 import { latexWarnings, markdownToHtml, type RenderContext } from './markdown.ts';
 import { figureHtml, wrapEndLines } from './exportHtml.ts';
@@ -306,7 +307,7 @@ export function applyEdit(text: string, ed: Edit): string {
  * ------------------------------------------------------------------------------- */
 
 export interface PageIssue {
-  kind: 'error' | 'alt-missing' | 'alt-check' | 'figure-check' | 'latex';
+  kind: 'error' | 'alt-missing' | 'alt-check' | 'figure-check' | 'redraw-error' | 'latex';
   /** The figure it concerns, if any. */
   figure?: number;
   text: string;
@@ -317,6 +318,15 @@ export function pageIssues(page: Pick<Page, 'source' | 'figures' | 'error'>): Pa
   const out: PageIssue[] = [];
   if (page.error) out.push({ kind: 'error', text: page.error });
   for (const f of page.figures) {
+    const wanted = (f.redraw?.show ?? 'image') !== 'image';
+    const state = wanted ? redrawState(f) : null;
+    if (state?.kind === 'broken')
+      out.push({ kind: 'redraw-error', figure: f.id, text: `Figure ${f.id}: the redraw has errors, so the image is shown.` });
+    // Shown only as a redraw, the figure's alt text is computed from the math.
+    if (f.redraw?.show === 'redrawn' && state?.kind === 'ready') {
+      if (f.needsReview) out.push({ kind: 'figure-check', figure: f.id, text: `Figure ${f.id}: check the crop and position.` });
+      continue;
+    }
     if (!f.alt.trim()) out.push({ kind: 'alt-missing', figure: f.id, text: `Figure ${f.id} has no alt text.` });
     else if (altTextIssue(f.alt)) out.push({ kind: 'alt-check', figure: f.id, text: `Figure ${f.id}: check the alt text.` });
     if (f.needsReview) out.push({ kind: 'figure-check', figure: f.id, text: `Figure ${f.id}: check the crop and position.` });

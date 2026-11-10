@@ -317,7 +317,7 @@ A circle, box, or bracket you draw around **words** just to highlight them is ig
 
 Every figure opens in a **figure panel** that takes its place in the document, just as a paragraph opens in the editor. Open it by clicking the figure in the document, its box on the original, or its number in the **Figures** row above the original. A number marked **!** needs checking. **Done** (or Esc) closes the panel.
 
-While a figure's panel is open, its box on the original is selected (blue) so you can adjust the crop. The panel ends with a preview of the figure as it will appear in the document.
+While a figure's panel is open, its box on the original is selected (blue) so you can adjust the crop. From top to bottom, the panel has the alt text and caption, the layout, the crop tools (**Snap crop to ink**, **Delete figure**), the optional **Redraw from the math** section (collapsed until you use it), and a preview of the figure as it will appear in the document.
 
 ### Badges
 
@@ -327,6 +327,8 @@ While a figure's panel is open, its box on the original is selected (blue) so yo
 | **Check crop** | The crop or position is a guess and may need attention. Adjusting the box clears it. |
 | **Check alt text** | The alt text looks like it includes writing from next to the drawing. See [Moving writing out of the alt text](#moving-writing-out-of-the-alt-text). |
 | **Not placed in text** | The figure has no marker in the transcription, so it won't appear in the export. Click **Insert in text**. |
+| **Redrawn** / **Redrawn + image** | The document shows the figure redrawn from the math. See [Redrawing figures from the math](#redrawing-figures-from-the-math). |
+| **Redraw has errors** | You chose the redraw, but its spec has errors, so the document shows the image until they're fixed. |
 
 ### Alt text
 
@@ -369,6 +371,39 @@ Open the figure (its box on the original turns blue). Then drag inside the box t
 - **Delete figure** (in its panel) removes the figure and its marker.
 
 ---
+
+### Redrawing figures from the math
+
+Some figures are mathematics drawn by hand: a graph of a function in the notes, a shaded region between two curves, a phase plane of a system. Ink2Web Lite can redraw these **exactly from the equation**. The drawing is clean at any size, and its alt text is computed from the math: the zeros, jumps and asymptotes of a graph; where two curves meet; each equilibrium and its type; and what each trajectory does.
+
+The cropped image stays the default. A redraw is an option you choose figure by figure.
+
+**To redraw a figure:**
+1. Open the figure's panel and expand **Redraw from the math** (near the bottom of the panel).
+2. Click **Redraw with the model**. The model looks at the figure and the notes around it, finds the equation the figure shows, and writes a short description (a *spec*). If the notes don't contain that equation, it says so and the figure stays an image.
+3. Compare **Original** and **Redrawn** side by side, and check **Redrawn from:** (the equation the redraw uses). Open **Alt text for the redrawn figure** to read what a screen reader will hear.
+4. At the end of the section, under **In the document**, choose:
+
+| Choice | The document shows |
+|---|---|
+| **Image** (default) | The cropped image, with your alt text. |
+| **Redrawn** | Only the redraw, with its computed alt text. |
+| **Both** | The redraw, with the original sketch in a collapsed "Original sketch" section below it. |
+
+**The redraw is idealized:** it follows the equation, not your pencil. The window, the labels, the points you marked, and where your curves start come from the sketch; everything else is computed. If your sketch was deliberately rough or qualitative, keep the image.
+
+**Fixing a spec.** The spec is shown under the drawings and you can edit it; the redraw updates when you pause typing, and any problems are listed right under the spec in plain words. Edits are kept even if you close the panel straight away. Typical fixes: the window (`"window": {"x": [0, 8], "y": [-1, 1]}`), a misread coefficient in an expression, or a starting point for a trajectory. **Ask the model again** replaces the spec; **Remove redraw** goes back to the image. You can also start from an example with **Write a spec by hand** (choose the kind first).
+
+Expressions use calculator syntax: `exp(-t)*cos(3t)`, `2t^2 - 1`, `sqrt(x)`, `ln(x)`, `pi`, `e^(-t)`, and `u(t-2)` for a unit step. The fields for each kind are listed in `docs/REDRAW.md`.
+
+**Constants in number fields.** Fields that take numbers (`window`, `between`, `at`, `start`, `ticks`, `size`, `width`, `A`) also accept a constant written in quotes: `"pi"`, `"pi/2"`, `"-2pi"`, `"3pi/4"`, `"e"`, `"sqrt(2)"`. For example, `"between": [0, "pi"]` or `"window": { "x": ["-2pi", "2pi"] }`. The alt text then says π exactly instead of 3.14. A tick given without a label is labeled the same way: `"ticks": { "x": ["pi", "2pi"] }` shows π and 2π.
+
+**What it can't redraw:** sketches without an equation in the notes (a spring and mass, a qualitative shape), other kinds of figures, and phase planes whose equilibria fill a whole line. These stay images.
+
+**Good to know:**
+- A spec with errors never replaces the image, even if you chose **Redrawn**; the export checklist reports it.
+- A figure shown only as **Redrawn** doesn't need your alt text (its own is computed). **Both** still shows the image, so keep that alt text.
+- Asking the model uses it the same way **Re-read from image** does: it waits while pages are converting.
 
 ## 8. Saving your work
 
