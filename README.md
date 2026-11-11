@@ -10,18 +10,21 @@ Everything runs on your own computer. The app uses a vision model running locall
 
 Ink2Web Lite is an **assistant, not a one-click converter**: the model does a first transcription, and you review and lightly edit it before exporting. Click any part of the preview to fix it in place; your work is saved as you go.
 
-Version 2.1.2. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 2.2.2. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
 ## Tuned for Qwen
 
-Ink2Web Lite is tuned and tested with two small Qwen vision models:
+Ink2Web Lite works with small Qwen vision models:
 
 | Model | Install | Notes |
 |---|---|---|
-| **Qwen3-VL 4B, instruct build** (recommended) | `ollama pull qwen3-vl:4b-instruct` | Best results; runs on an 8 GB Mac |
+| **Qwen3.5 4B, MLX build** (recommended on Apple Silicon) | `ollama pull qwen3.5:4b-mlx` | Uses Ollama's MLX engine; runs on an 8 GB M1 Mac |
+| **Qwen3-VL 4B, instruct build** | `ollama pull qwen3-vl:4b-instruct` | For computers without Apple Silicon; the model the prompts were first tuned with |
 | **Qwen2.5-VL 3B** | `ollama pull qwen2.5vl:3b` | Smaller, slightly less accurate |
+
+The MLX build needs a recent Ollama (check with `ollama --version`).
 
 **Have a more powerful computer?** Choose the **Larger models** prompt under **Model and settings › Transcription prompt**. It's a second built-in prompt with more detailed rules (multi-line alignment, cases and matrices, lists and tables, look-alike characters, reading order, fuller figure descriptions) for vision models around 8B and up, such as `qwen3-vl:8b-instruct`. The short **Everyday hardware** prompt stays the default, and both use the same output formats, so everything after transcription works the same way.
 
@@ -39,6 +42,20 @@ Run `npm test` after changes, and compare a few pages you know well before and a
 ---
 
 ## What's new
+
+### 2.2.2
+- Redraw specs: number fields accept constants such as `"pi/2"`, `"2pi"`, and `"e"`, and the alt text says π exactly. Ticks without labels are labeled π, 2π, … automatically. Simple multiples of e are recognized in alt text.
+- Figure panel: the crop tools sit with the layout again; **Redraw from the math** is collapsed until used; inside it, the steps follow the workflow (compare, edit the spec with its problems listed right under it, then choose **In the document** at the end).
+- Fixed: closing the panel right after typing in the spec no longer drops the last edit. Spec problems no longer interrupt screen readers on every pause, and the alt text box isn't flagged as missing when only the redraw is shown.
+
+### 2.2.1
+- Redraw: a warning when the equation in `from` doesn't match the curve that is drawn (the drawing follows `expr`, so editing only `from` changes nothing), and a note under the spec explaining that edits apply as you type.
+
+### 2.2.0
+- **Redraw figures from the math.** A graph of a stated function, a region between curves, or a phase plane can be redrawn exactly from the equation in the notes, with alt text computed from the math (zeros, jumps, asymptotes, intersections, equilibria and their types, what each trajectory does). In the figure panel, **Redraw with the model** reads the figure and the notes around it and writes a small spec; you can also write or edit the spec yourself.
+- **The image stays the default.** Choose **Image**, **Redrawn**, or **Both** (the redraw with the original sketch under it) for each figure. A spec with errors never replaces the image.
+- Redrawn figures are inline SVG in the export: sharp at any zoom, printable, and readable by screen readers. Project files keep the spec.
+- Developer preview of the engine: `figure-lab.html` (see `docs/REDRAW.md`).
 
 ### 2.1.2
 - **A second built-in prompt for larger models.** Under **Model and settings › Transcription prompt**, choose **Everyday hardware** (the default: short and concrete, for small models like `qwen3-vl:4b-instruct`) or **Larger models** (more detailed rules for models around 8B and up). The choice is remembered and applies to pages you convert next.
@@ -164,11 +181,19 @@ node -v && ollama --version
 
 ### Install a model
 
+On an Apple Silicon Mac:
+
+```bash
+ollama pull qwen3.5:4b-mlx
+```
+
+On other computers:
+
 ```bash
 ollama pull qwen3-vl:4b-instruct
 ```
 
-**Use the `-instruct` tag.** The default Qwen3-VL tags (like `qwen3-vl:4b`) are "thinking" builds. They're much slower for transcription and may return empty pages. HELP.md explains why.
+**For Qwen3-VL, use the `-instruct` tag.** The default Qwen3-VL tags (like `qwen3-vl:4b`) are "thinking" builds. They're much slower for transcription and may return empty pages. HELP.md explains why.
 
 ---
 

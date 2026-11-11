@@ -3,6 +3,9 @@ import type { Figure, FigureAlign } from '../types.ts';
 import { altTextIssue } from '../lib/editing.ts';
 import { figureHtml } from '../lib/exportHtml.ts';
 import { Preview } from './Preview.tsx';
+import { RedrawSection } from './RedrawSection.tsx';
+import { redrawState } from '../lib/figureRedraw.ts';
+import type { RedrawOutcome } from '../lib/redraw/conversation.ts';
 
 interface Props {
   fig: Figure;
@@ -20,6 +23,10 @@ interface Props {
   onDelete: () => void;
   /** Moves the selected part of the alt text (all of it with no selection) into the notes. */
   onMoveToNotes: (ta: HTMLTextAreaElement | null) => void;
+  /** Asks the model for a redraw spec (2.2). */
+  onRedraw: (signal: AbortSignal) => Promise<RedrawOutcome>;
+  /** Why the model can't be asked now ('' when it can). */
+  redrawBlocked: string;
   onClose: () => void;
 }
 
@@ -34,12 +41,15 @@ const ALIGNS: { value: FigureAlign; label: string }[] = [
  * of the figure in the document, like the block editor does for text.
  */
 export function FigurePanel(props: Props) {
-  const { fig: f, pageId, pageNo, pos, unitCount, focusAlt, onPatch, onMove, onSnap, onInsert, onDelete, onMoveToNotes, onClose } = props;
+  const { fig: f, pageId, pageNo, pos, unitCount, focusAlt, onPatch, onMove, onSnap, onInsert, onDelete, onMoveToNotes, onRedraw, redrawBlocked, onClose } =
+    props;
   const rootRef = useRef<HTMLDivElement>(null);
   const altRef = useRef<HTMLTextAreaElement>(null);
   const pid = `${pageId}-${f.id}`;
   const canWrap = f.align !== 'center';
   const altIssue = altTextIssue(f.alt);
+  const show = f.redraw?.show ?? 'image';
+  const redraw = f.redraw ? redrawState(f).kind : 'none';
 
   // Opened from the page image or the figure list, the panel may be off screen.
   useEffect(() => {
@@ -63,6 +73,8 @@ export function FigurePanel(props: Props) {
         {f.needsReview && <span className="badge error">Check crop</span>}
         {altIssue && <span className="badge error">Check alt text</span>}
         {pos === undefined && <span className="badge queued">Not placed in text</span>}
+        {show !== 'image' && redraw === 'ready' && <span className="badge done">{show === 'both' ? 'Redrawn + image' : 'Redrawn'}</span>}
+        {redraw === 'broken' && <span className="badge error">Redraw has errors</span>}
         <button type="button" className="primary push" onClick={onClose}>
           Done
         </button>
@@ -71,12 +83,20 @@ export function FigurePanel(props: Props) {
       <div className="fig-panel-body">
         <div className="fig-fields">
           <label htmlFor={`alt-${pid}`}>Alt text (describe what the figure shows)</label>
+          {show !== 'image' && redraw === 'ready' && (
+            <p className="hint">
+              {show === 'redrawn'
+                ? 'The redrawn figure has its own alt text, computed from the math; this one is used if you go back to the image.'
+                : 'Used for the original sketch shown under the redraw.'}
+            </p>
+          )}
           <textarea
             ref={altRef}
             id={`alt-${pid}`}
             rows={3}
             value={f.alt}
-            aria-invalid={!f.alt.trim()}
+            // Not needed when only the redraw (with its own alt text) is shown.
+            aria-invalid={!f.alt.trim() && !(show === 'redrawn' && redraw === 'ready')}
             aria-describedby={altIssue ? `altissue-${pid}` : undefined}
             onChange={(e) => onPatch({ alt: e.target.value })}
           />
@@ -189,7 +209,7 @@ export function FigurePanel(props: Props) {
         </fieldset>
       </div>
 
-      <p className="hint">
+      <p className="hint fig-crop-hint">
         <strong>Crop:</strong> on the original page, drag the blue box, drag a corner, or draw a new box. With the
         keyboard, Tab to the box: arrow keys move it, Shift+arrows resize it.
       </p>
@@ -201,6 +221,8 @@ export function FigurePanel(props: Props) {
           Delete figure
         </button>
       </div>
+
+      <RedrawSection fig={f} pid={pid} onPatch={onPatch} onRedraw={onRedraw} blocked={redrawBlocked} />
 
       <div className="fig-panel-preview">
         <p className="hint">In the document:</p>

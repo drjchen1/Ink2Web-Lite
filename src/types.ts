@@ -10,6 +10,21 @@ export interface Box {
 
 export type FigureAlign = 'left' | 'center' | 'right';
 
+/** What the document shows for a figure (2.2): the cropped image, the redraw, or both. */
+export type FigureShow = 'image' | 'redrawn' | 'both';
+
+/**
+ * A figure recreated from its mathematics (2.2). Only the spec is stored; the SVG and
+ * its alt text are regenerated from it (lib/figureRedraw.ts), so a spec with errors
+ * simply falls back to the image.
+ */
+export interface FigureRedraw {
+  /** The redraw spec as JSON text (see docs/REDRAW.md). Kept as typed, errors and all. */
+  spec: string;
+  /** 'image' until the user chooses otherwise. */
+  show: FigureShow;
+}
+
 export interface Figure {
   /** Matches the [[FIGURE n]] marker in the page source. Unique within a page. */
   id: number;
@@ -32,6 +47,8 @@ export interface Figure {
   wrap: boolean;
   /** With wrap: how many following lines sit beside the figure; later text starts below it. */
   besideLines: number;
+  /** Redrawn from the math (2.2), if the user has asked for it. */
+  redraw?: FigureRedraw;
 }
 
 /**

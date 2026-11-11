@@ -81,7 +81,7 @@ export function SettingsPanel({
             ) : selected?.vision === false ? (
               <span className="error-text">This model can’t read images. Pick a vision model (e.g. pull one with “ollama pull …”).</span>
             ) : (
-              'Tuned for qwen3-vl:4b-instruct and qwen2.5vl:3b. On a more powerful computer, try a larger model with the Larger models prompt below.'
+              'Recommended: qwen3.5:4b-mlx on Apple Silicon, otherwise qwen3-vl:4b-instruct. On a more powerful computer, try a larger model with the Larger models prompt below.'
             )}
           </p>
         </div>
