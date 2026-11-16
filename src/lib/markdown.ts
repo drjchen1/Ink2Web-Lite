@@ -29,6 +29,8 @@ export interface RenderContext {
 export interface RenderOptions {
   /** Returns the HTML for a [[FIGURE n]] marker (or '' if unknown). */
   figure: (id: number) => string;
+  /** Returns the HTML for a row of figures side by side (internal [[FIGROW a b]] line). */
+  figureRow?: (ids: number[]) => string;
   ctx?: RenderContext;
 }
 
@@ -337,6 +339,8 @@ const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 const HEADING_RE = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
 const HR_RE = /^\s*([-*_])(\s*\1){2,}\s*$/;
 const FIG_RE = /^\s*\[\[\s*FIGURE\s+(\d+)\s*\]\]\s*$/i;
+/** Internal: figures side by side, [[FIGROW 1 2]] (written by exportHtml.withRows). */
+const FIGROW_RE = /^\s*\[\[FIGROW((?:\s+\d+)+)\s*\]\]\s*$/;
 const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
 export function markdownToHtml(md: string, opts: RenderOptions): string {
@@ -383,6 +387,14 @@ export function markdownToHtml(md: string, opts: RenderOptions): string {
       continue;
     }
 
+    const row = line.match(FIGROW_RE);
+    if (row) {
+      closeBlocks();
+      const ids = row[1].trim().split(/\s+/).map(Number);
+      const html = opts.figureRow ? opts.figureRow(ids) : ids.map(opts.figure).filter(Boolean).join('\n');
+      if (html) out.push(html);
+      continue;
+    }
     const fig = line.match(FIG_RE);
     if (fig) {
       closeBlocks();

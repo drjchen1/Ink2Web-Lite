@@ -18,6 +18,12 @@ interface Props {
   focusAlt: boolean;
   onPatch: (patch: Partial<Figure>) => void;
   onMove: (dir: -1 | 1) => void;
+  /** The figure whose marker comes last before this one's, and whether it is right before it. */
+  prevFigure: { id: number; adjacent: boolean } | null;
+  /** The row of figures side by side that this figure is in (2.2.3), or null. */
+  row: number[] | null;
+  /** Side by side with the previous figure, or not. */
+  onBeside: (on: boolean) => void;
   onSnap: () => void;
   onInsert: () => void;
   onDelete: () => void;
@@ -43,10 +49,16 @@ const ALIGNS: { value: FigureAlign; label: string }[] = [
 export function FigurePanel(props: Props) {
   const { fig: f, pageId, pageNo, pos, unitCount, focusAlt, onPatch, onMove, onSnap, onInsert, onDelete, onMoveToNotes, onRedraw, redrawBlocked, onClose } =
     props;
+  const { prevFigure: prev, row, onBeside } = props;
+  const k = row ? row.indexOf(f.id) : -1;
+  /** Beside the figure before it (the row goes on from there). */
+  const besideOn = k > 0;
+  /** The figure right after this one in its row. */
+  const next = row && k >= 0 && k + 1 < row.length ? row[k + 1] : null;
   const rootRef = useRef<HTMLDivElement>(null);
   const altRef = useRef<HTMLTextAreaElement>(null);
   const pid = `${pageId}-${f.id}`;
-  const canWrap = f.align !== 'center';
+  const canWrap = f.align !== 'center' && !row;
   const altIssue = altTextIssue(f.alt);
   const show = f.redraw?.show ?? 'image';
   const redraw = f.redraw ? redrawState(f).kind : 'none';
@@ -154,11 +166,18 @@ export function FigurePanel(props: Props) {
             </span>
             <div className="seg" role="group" aria-labelledby={`al-${pid}`}>
               {ALIGNS.map((a) => (
-                <button key={a.value} type="button" aria-pressed={f.align === a.value} onClick={() => onPatch({ align: a.value })}>
+                <button
+                  key={a.value}
+                  type="button"
+                  aria-pressed={f.align === a.value}
+                  disabled={besideOn}
+                  onClick={() => onPatch({ align: a.value })}
+                >
                   {a.label}
                 </button>
               ))}
             </div>
+            {besideOn && <span className="hint">(set by figure {row![0]}, first in the row)</span>}
           </div>
           <div className="layout-row">
             <label className="layout-label" htmlFor={`w-${pid}`}>
@@ -176,6 +195,14 @@ export function FigurePanel(props: Props) {
             />
             <output htmlFor={`w-${pid}`}>{f.width}%</output>
           </div>
+          {prev && (
+            <label className="check">
+              <input type="checkbox" checked={besideOn} onChange={(e) => onBeside(e.target.checked)} /> Side by side with figure{' '}
+              {prev.id}
+              {!besideOn && !prev.adjacent && <span className="hint"> (moves this figure right after figure {prev.id} in the text)</span>}
+            </label>
+          )}
+          {next !== null && <p className="hint">Figure {next} sits beside this one{besideOn ? '' : '; Align places the whole row'}.</p>}
           <label className="check">
             <input
               type="checkbox"
@@ -184,7 +211,7 @@ export function FigurePanel(props: Props) {
               onChange={(e) => onPatch({ wrap: e.target.checked, besideLines: Math.max(1, f.besideLines || 1) })}
             />{' '}
             Put text beside the figure
-            {!canWrap && <span className="hint"> (choose Left or Right first)</span>}
+            {!canWrap && <span className="hint">{row ? ' (not for figures side by side)' : ' (choose Left or Right first)'}</span>}
           </label>
           {f.wrap && canWrap && (
             <div className="layout-row">

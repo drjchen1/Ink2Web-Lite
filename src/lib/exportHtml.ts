@@ -2,6 +2,7 @@ import type { Figure, Page } from '../types.ts';
 import { CLEAR_MARK, INK_COLORS, escapeHtml, markdownToHtml, type RenderContext } from './markdown.ts';
 import { MARKER_LINE, sourceUnits } from './transcript.ts';
 import { placeSvg, redrawState, shownAs } from './figureRedraw.ts';
+import { figureRows, rowMembers } from './figureRows.ts';
 
 /** Renders figures and pages to HTML; builds the standalone, accessible export. */
 
@@ -64,6 +65,10 @@ figure.fig svg.redraw{display:block;width:100%;height:auto;border:1px solid #d0d
 figure.fig details.fig-orig{margin-top:.4rem}
 figure.fig details.fig-orig summary{cursor:pointer;color:#555;font-size:.95rem}
 figure.fig details.fig-orig img{margin-top:.4rem}
+.fig-row{display:flex;flex-wrap:wrap;align-items:flex-start;column-gap:4%;clear:both;margin:0 0 1rem}
+.fig-row.align-center{justify-content:center}
+.fig-row.align-right{justify-content:flex-end}
+.fig-row figure.fig{flex:0 0 auto;margin:0 0 .5rem}
 strong.ul{font-weight:600;text-decoration:underline;text-decoration-thickness:.12em;text-underline-offset:.2em}
 `;
 
@@ -73,12 +78,13 @@ strong.ul{font-weight:600;text-decoration:underline;text-decoration-thickness:.1
  * original sketch in a collapsed "Original sketch" section). A redraw whose spec has
  * errors falls back to the image.
  */
-export function figureHtml(fig: Figure | undefined, pageNo: number): string {
+export function figureHtml(fig: Figure | undefined, pageNo: number, inRow = false): string {
   if (!fig) return '';
   const alt = escapeHtml(polishAlt(fig.alt));
   const caption = fig.caption.trim() ? `<figcaption>${escapeHtml(fig.caption.trim())}</figcaption>` : '';
   const align = fig.align ?? 'center';
-  const wrap = fig.wrap && align !== 'center' ? ' wrap' : '';
+  // In a row of figures (2.2.3), text never flows beside one of them.
+  const wrap = fig.wrap && align !== 'center' && !inRow ? ' wrap' : '';
   const width = Math.min(100, Math.max(15, Math.round(fig.width ?? 100)));
   const id = `fig-${pageNo}-${fig.id}`;
   const show = shownAs(fig);
@@ -103,10 +109,11 @@ export function wrapEndLines(source: string, figures: Figure[]): Set<number> {
   const lines = source.split('\n');
   const units = sourceUnits(source);
   const clearAfter = new Set<number>(); // line index after which to clear
+  const inRow = rowMembers(source, figures);
   units.forEach((u, i) => {
     const m = u.start === u.end ? lines[u.start].match(MARKER_LINE) : null;
     const f = m ? figures.find((x) => x.id === Number(m[1])) : undefined;
-    if (!f || !f.wrap || f.align === 'center' || !(f.besideLines > 0)) return;
+    if (!f || !f.wrap || f.align === 'center' || !(f.besideLines > 0) || inRow.has(f.id)) return;
     let n = 0;
     for (let j = i + 1; j < units.length; j++) {
       if (lines[units[j].start].match(MARKER_LINE)) break;
@@ -129,10 +136,37 @@ export function withWrapEnds(source: string, figures: Figure[]): string {
     .join('\n');
 }
 
+/**
+ * The source with each row of figures (2.2.3) as one [[FIGROW a b ...]] line in place
+ * of its markers, for rendering.
+ */
+export function withRows(source: string, figures: Figure[]): string {
+  const rows = figureRows(source, figures);
+  if (!rows.length) return source;
+  const first = new Map(rows.map((r) => [r[0], r]));
+  const rest = new Set(rows.flatMap((r) => r.slice(1)));
+  return source
+    .split('\n')
+    .flatMap((l) => {
+      const id = Number(l.match(MARKER_LINE)?.[1]);
+      if (first.has(id)) return [`[[FIGROW ${first.get(id)!.join(' ')}]]`];
+      return rest.has(id) ? [] : [l];
+    })
+    .join('\n');
+}
+
+/** One row of figures: the first figure's alignment places the whole row. */
+export function figureRowHtml(ids: number[], figures: Figure[], pageNo: number): string {
+  const figs = ids.map((id) => figures.find((f) => f.id === id)).filter((f): f is Figure => !!f);
+  if (!figs.length) return '';
+  return `<div class="fig-row align-${figs[0].align ?? 'center'}">${figs.map((f) => figureHtml(f, pageNo, true)).join('')}</div>`;
+}
+
 export function pageHtml(page: Page, pageNo: number, ctx?: RenderContext): string {
-  const html = markdownToHtml(withWrapEnds(page.source, page.figures), {
+  const html = markdownToHtml(withRows(withWrapEnds(page.source, page.figures), page.figures), {
     ctx,
     figure: (id) => figureHtml(page.figures.find((f) => f.id === id), pageNo),
+    figureRow: (ids) => figureRowHtml(ids, page.figures, pageNo),
   });
   // Text wrapping beside a figure always stops at the end of its page.
   return page.figures.some((f) => f.wrap) ? `${html}\n<div class="fig-clear"></div>` : html;

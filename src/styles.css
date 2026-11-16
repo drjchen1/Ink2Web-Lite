@@ -232,6 +232,10 @@ main:focus { outline: none; }
 .doc.editable .blk:hover { outline-color: #9db6cf; background: #f5f9fc; }
 .doc.editable .blk:focus-visible { outline: 3px solid var(--accent); }
 .doc .blk > :last-child { margin-bottom: 1rem; }
+/* Figures side by side (2.2.3): one block per figure, inline at the figure's width. */
+.doc .blk-row { display: inline-block; vertical-align: top; width: var(--w); }
+.doc .blk-row > figure.fig { width: 100%; margin: 0 0 1rem; }
+.doc .blk-row-start { clear: both; }
 .block-editor { border: 2px solid var(--accent); border-radius: 8px; padding: .75rem; margin: .5rem 0 1rem; background: #fbfdff; }
 .block-editor-label { display: block; font-weight: 600; margin-bottom: .4rem; }
 .block-editor textarea { font: .9rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: .4rem 0; }

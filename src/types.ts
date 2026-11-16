@@ -47,6 +47,11 @@ export interface Figure {
   wrap: boolean;
   /** With wrap: how many following lines sit beside the figure; later text starts below it. */
   besideLines: number;
+  /**
+   * Sits side by side with the figure right before it in the text (2.2.3). Only takes
+   * effect while the two markers are next to each other (see lib/figureRows.ts).
+   */
+  besidePrevious?: boolean;
   /** Redrawn from the math (2.2), if the user has asked for it. */
   redraw?: FigureRedraw;
 }

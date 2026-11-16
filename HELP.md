@@ -365,6 +365,18 @@ Open the figure (its box on the original turns blue). Then drag inside the box t
 | **Width** | 20–100% of the text column |
 | **Put text beside the figure** | For Left/Right figures, the following text sits next to the drawing |
 | **Lines beside it** | How many lines sit beside the figure; text after that starts below it |
+| **Side by side with figure n** | Puts this figure on one line with the figure before it (see below) |
+
+#### Figures side by side
+
+Two drawings next to each other in your notes (a "before" and "after" sketch, say) can sit side by side in the document too. When the drawings are level with each other on the page and nothing is written between them, the app does this by itself when it converts the page.
+
+To do it by hand, open the second figure and tick **Side by side with figure n**. If there is text between the two figures, the second one moves up to right after the first. Rows can hold more than two figures: tick the box on each one.
+
+- **Width** is each figure's share of the line. Ticking the box shrinks the widths if they don't fit.
+- **Align** of the first figure places the whole row.
+- Text never flows beside a figure in a row, and on a phone the figures stack.
+- Moving a figure with **Position ↑ / ↓**, or unticking the box, ends the row.
 
 ### Adding or removing figures
 

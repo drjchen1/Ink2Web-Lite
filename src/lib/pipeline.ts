@@ -8,6 +8,7 @@ import { cropBase64, cropFigure, modelImage, pageLayout, regionImage, snapToInk,
 import { DESCRIBE_USER, LOCATE_SCHEMA, REREAD_USER, TRANSCRIBE_SYSTEM, locatePrompt, transcribePrompt } from './prompts.ts';
 import { defaultLayout, matchFigures } from './layout.ts';
 import { besideUnitCount, placeByPosition, renumber, type Placed } from './placement.ts';
+import { detectRows, figureRows, fitWidths } from './figureRows.ts';
 import { cleanModelOutput, cleanReread, extractFigures, isLooping, parseBoxes, removeMarkers, trimRepetition } from './transcript.ts';
 
 export interface PageProgress {
@@ -149,6 +150,9 @@ export async function convertPage(
   const toPlace: Placed[] = drafts.filter((d) => d.placed);
   const keep: Placed[] = drafts.filter((d) => !d.placed);
   source = placeByPosition(source, toPlace, keep, layout.lines);
+  // Detected drawings level with each other on the page sit side by side (2.2.3).
+  const rowsFound = detectRows(source, toPlace);
+  source = rowsFound.source;
   const { source: numbered, map } = renumber(source);
 
   const figures: Figure[] = [];
@@ -166,7 +170,13 @@ export async function convertPage(
       needsReview: d.needsReview,
       autoDetected: d.autoDetected,
       ...look,
+      ...(rowsFound.beside.has(d.id) ? { besidePrevious: true } : {}),
     });
+  }
+  for (const row of figureRows(numbered, figures)) {
+    const members = row.map((id) => figures.find((f) => f.id === id)!);
+    const widths = fitWidths(members.map((f) => f.width));
+    members.forEach((f, i) => Object.assign(f, { width: widths[i], wrap: false, besideLines: 0, align: 'center' as const }));
   }
   return { source: numbered, figures: figures.sort((a, b) => a.id - b.id) };
 }

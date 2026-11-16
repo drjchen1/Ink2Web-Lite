@@ -3,6 +3,7 @@ import type { Page } from '../types.ts';
 import { latexWarnings, markdownToHtml, type RenderContext } from './markdown.ts';
 import { figureHtml, wrapEndLines } from './exportHtml.ts';
 import { MARKER_LINE, sourceUnits } from './transcript.ts';
+import { ROW_GAP, figureRows } from './figureRows.ts';
 
 /**
  * Click-to-edit support (pure functions, no DOM):
@@ -94,10 +95,25 @@ export function pageBlocks(
 ): { blocks: Block[]; html: string[]; tail: string } {
   const blocks = splitBlocks(page.source, wrapEndLines(page.source, page.figures));
   const ctx: RenderContext = { lastHeading: 1 };
-  const figure = (id: number) => figureHtml(page.figures.find((f) => f.id === id), pageNo);
+  // Figures side by side (2.2.3): each is its own block, shown inline at its width, so
+  // a click still opens just that figure. The row's alignment shifts its first block.
+  const rowOf = new Map<number, number[]>();
+  for (const r of figureRows(page.source, page.figures)) for (const id of r) rowOf.set(id, r);
+  const widthOf = (id: number) => Math.min(100, Math.max(15, Math.round(page.figures.find((f) => f.id === id)?.width ?? 100)));
+  const figure = (id: number) => figureHtml(page.figures.find((f) => f.id === id), pageNo, rowOf.has(id));
   const described = hintId ? ` aria-describedby="${hintId}"` : '';
   const html = blocks.map((b, i) => {
     const inner = markdownToHtml(blockText(page.source, b), { ctx, figure });
+    const row = b.fig !== undefined ? rowOf.get(b.fig) : undefined;
+    if (row && b.fig !== undefined) {
+      const k = row.indexOf(b.fig);
+      const total = row.reduce((s, id) => s + widthOf(id), 0) + ROW_GAP * (row.length - 1);
+      const align = page.figures.find((f) => f.id === row[0])?.align ?? 'center';
+      const lead = k ? 0 : Math.max(0, align === 'center' ? (100 - total) / 2 : align === 'right' ? 100 - total : 0);
+      const style = `--w:${widthOf(b.fig)}%;margin-left:${lead}%;margin-right:${k < row.length - 1 ? ROW_GAP : 0}%`;
+      const start = k ? '' : '<div class="blk-row-start"></div>';
+      return `${start}<div class="blk blk-fig blk-row" data-b="${i}" tabindex="0"${described} style="${style}">${inner}</div>`;
+    }
     const kind = b.fig !== undefined ? ' blk-fig' : '';
     return `<div class="blk${kind}" data-b="${i}" tabindex="0"${described}>${inner}</div>${b.clear ? '<div class="fig-clear"></div>' : ''}`;
   });

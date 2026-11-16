@@ -7,6 +7,7 @@ import { cropFigure, pageLayout, snapToInk } from '../lib/images.ts';
 import { defaultLayout, overlapRatio } from '../lib/layout.ts';
 import { besideUnitCount, placeOne } from '../lib/placement.ts';
 import { markerUnitIndex, moveMarker, nextFigureId, sourceUnits } from '../lib/transcript.ts';
+import { figureRows, fitWidths, placeAfter, previousFigure } from '../lib/figureRows.ts';
 import { CropCanvas } from './CropCanvas.tsx';
 import { Preview } from './Preview.tsx';
 import { BlockEditor } from './BlockEditor.tsx';
@@ -333,8 +334,43 @@ export const PageView = memo(function PageView(props: Props) {
   };
 
   const moveFigure = (id: number, dir: -1 | 1) => {
-    onUpdate(page.id, { source: moveMarker(latest.current.source, id, dir) });
+    const p = latest.current;
+    // Moving a figure takes it out of its row (and ends the row for the figure beside it).
+    const row = figureRows(p.source, p.figures).find((r) => r.includes(id));
+    const leave = new Set([id]);
+    if (row && row.indexOf(id) + 1 < row.length) leave.add(row[row.indexOf(id) + 1]);
+    onUpdate(page.id, {
+      source: moveMarker(p.source, id, dir),
+      figures: p.figures.map((f) => (leave.has(f.id) && f.besidePrevious ? { ...f, besidePrevious: false } : f)),
+    });
     setNote(`Figure ${id} moved ${dir < 0 ? 'up' : 'down'} in the text.`);
+  };
+
+  /**
+   * Puts a figure side by side with the figure before it (2.2.3), moving its marker
+   * right after that figure's if needed, or takes it out of the row.
+   */
+  const setBeside = (id: number, on: boolean) => {
+    const p = latest.current;
+    const prev = previousFigure(p.source, id);
+    if (!on || !prev) {
+      patchFigure(id, { besidePrevious: false });
+      setNote(`Figure ${id} is no longer beside another figure.`);
+      return;
+    }
+    const source = prev.adjacent ? p.source : placeAfter(p.source, id, prev.id);
+    const figs = p.figures.map((f) => (f.id === id ? { ...f, besidePrevious: true } : f));
+    const row = figureRows(source, figs).find((r) => r.includes(id)) ?? [prev.id, id];
+    const widths = fitWidths(row.map((r) => figs.find((f) => f.id === r)?.width ?? 50));
+    onUpdate(page.id, {
+      source,
+      figures: figs.map((f) => (row.includes(f.id) ? { ...f, width: widths[row.indexOf(f.id)], wrap: false } : f)),
+    });
+    setNote(
+      prev.adjacent
+        ? `Figure ${id} now sits beside figure ${prev.id}.`
+        : `Figure ${id} moved right after figure ${prev.id} in the text and now sits beside it.`,
+    );
   };
 
   /** Moves the selected part of a figure's alt text (or all of it) into the notes right after the figure. */
@@ -353,6 +389,8 @@ export const PageView = memo(function PageView(props: Props) {
   };
 
   const activeFig = page.figures.find((f) => f.id === active);
+  const rows = useMemo(() => figureRows(page.source, page.figures), [page.source, page.figures]);
+  const activeRow = activeFig ? rows.find((r) => r.includes(activeFig.id)) : undefined;
   const panel = activeFig && (
     <FigurePanel
       key={activeFig.id}
@@ -364,6 +402,9 @@ export const PageView = memo(function PageView(props: Props) {
       focusAlt={focusAlt}
       onPatch={(patch) => patchFigure(activeFig.id, patch)}
       onMove={(dir) => moveFigure(activeFig.id, dir)}
+      prevFigure={previousFigure(page.source, activeFig.id)}
+      row={activeRow ?? null}
+      onBeside={(on) => setBeside(activeFig.id, on)}
       onSnap={async () => setBox(activeFig.id, await snapToInk(page.image, activeFig.box))}
       onInsert={() => onUpdate(page.id, { source: `${latest.current.source.trimEnd()}\n\n[[FIGURE ${activeFig.id}]]\n` })}
       onDelete={() => removeFigure(activeFig.id)}

@@ -10,7 +10,7 @@ Everything runs on your own computer. The app uses a vision model running locall
 
 Ink2Web Lite is an **assistant, not a one-click converter**: the model does a first transcription, and you review and lightly edit it before exporting. Click any part of the preview to fix it in place; your work is saved as you go.
 
-Version 2.2.2. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 2.2.3. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
@@ -42,6 +42,9 @@ Run `npm test` after changes, and compare a few pages you know well before and a
 ---
 
 ## What's new
+
+### 2.2.3
+- **Figures side by side.** Drawings that sit next to each other on the page are shown next to each other in the document, in one row. The app detects this when converting; in a figure's panel, **Side by side with figure n** does it by hand. Each figure's **Width** is its share of the line; text doesn't flow beside a row, and on narrow screens the figures stack.
 
 ### 2.2.2
 - Redraw specs: number fields accept constants such as `"pi/2"`, `"2pi"`, and `"e"`, and the alt text says π exactly. Ticks without labels are labeled π, 2π, … automatically. Simple multiples of e are recognized in alt text.
@@ -295,6 +298,7 @@ src/
     markdown.ts         Markdown (+ marks, "where" sentences) → accessible HTML
     editing.ts          click-to-edit blocks; toolbar marks; alt text check, Move to notes; things to check
     exportHtml.ts       builds the downloadable HTML document
+    figureRows.ts       figures side by side (rows)
     storage.ts          autosave (IndexedDB) and project files
     images.ts           PDF/image loading, contrast boost, cropping
     mathjax.ts          MathJax for the in-app preview
