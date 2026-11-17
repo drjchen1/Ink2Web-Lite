@@ -1,6 +1,6 @@
 # Ink2Web Lite: User Guide
 
-This guide covers everyday use of Ink2Web Lite 2.1. For installation, see [README.md](README.md).
+This guide covers everyday use of Ink2Web Lite 3.0. For installation, see [README.md](README.md).
 
 > **Your work is saved as you go**, in this browser on this computer. To keep a copy you can move or back up, use **Save** in the top bar. See [Saving your work](#8-saving-your-work).
 
@@ -50,6 +50,13 @@ A typical page takes from a few seconds to a minute, depending on your model and
 ## 2. Choosing a model and settings
 
 Click the **model button** in the top bar (it shows the current model, or ⚠ when there's a problem) to open **Model and settings**. Close it with **×**, Esc, or a click outside.
+
+### Where the model runs (3.0)
+
+- **This computer (Ollama)**, the default: nothing leaves your computer.
+- **Purdue GenAI Studio** (☁): pages are sent to Purdue's GenAI Studio, which hosts much larger models. It needs an API key set up once (README › Purdue GenAI Studio). Use it for your own notes, **never for student work**. The ☁ on the model button shows when it's in use.
+
+Each choice remembers its own model. Everything else in this guide works the same with either.
 
 ### Ollama vision model
 
@@ -490,6 +497,9 @@ These come from what small vision models can and can't do reliably. Each has a q
 | Problem | Fix |
 |---|---|
 | **"Cannot reach Ollama"** | Open the Ollama app (or run `ollama serve`), then click **Refresh**. |
+| **"GenAI Studio refused the API key"** | Check `GENAI_API_KEY` in `.env.local`, then restart `npm run dev`. |
+| **"Cannot reach GenAI Studio"** | Check your internet connection and that `npm run dev` is running, then **Refresh**. |
+| **GenAI Studio is slow or rate-limited** | The app waits and retries on its own; converting fewer pages at once helps. |
 | **No models in the list** | Install one: `ollama pull qwen3.5:4b-mlx` (Apple Silicon) or `ollama pull qwen3-vl:4b-instruct`, then **Refresh**. |
 | **A model is very slow, or returns empty or cut-off text** | It's probably a thinking build. Use `qwen3.5:4b-mlx` (Apple Silicon) or `qwen3-vl:4b-instruct`. |
 | **Results suddenly look different** | Check for the **Custom prompt in use** banner above **Convert all** (a saved prompt may be set to start with the app). Click **Use the built-in prompt**, then **Convert again**. Also check which built-in prompt is chosen under **Model and settings › Transcription prompt**. |
@@ -515,7 +525,7 @@ These come from what small vision models can and can't do reliably. Each has a q
 ## 13. FAQ
 
 **Does anything leave my computer?**
-No. Your notes go only to Ollama on your own machine, and saved work stays in this browser or in project files you download.
+Not by default: your notes go only to Ollama on your own machine. If you choose **Purdue GenAI Studio** (☁), page images and prompts are sent to GenAI Studio. Saved work always stays in this browser or in project files you download.
 
 **Can I close the app and continue later?**
 Yes. Reopen it and choose **Restore**, or open a project file.

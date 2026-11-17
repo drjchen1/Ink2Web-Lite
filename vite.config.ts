@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
+import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
@@ -20,6 +20,31 @@ const ollamaProxy: Record<string, ProxyOptions> = {
     },
   },
 };
+
+/**
+ * Purdue GenAI Studio (3.0). The browser calls /genai/...; this server forwards to
+ * GenAI Studio and adds the API key, so the key stays on this computer and out of the
+ * browser. Put it in .env.local (git-ignored):  GENAI_API_KEY=sk-...
+ * GENAI_URL overrides the address (default https://genai.rcac.purdue.edu).
+ */
+function genaiProxy(env: Record<string, string>): Record<string, ProxyOptions> {
+  const key = env.GENAI_API_KEY || process.env.GENAI_API_KEY || '';
+  return {
+    '/genai': {
+      target: env.GENAI_URL || process.env.GENAI_URL || 'https://genai.rcac.purdue.edu',
+      changeOrigin: true,
+      secure: true,
+      rewrite: (p: string) => p.replace(/^\/genai/, ''),
+      configure: (proxy) => {
+        proxy.on('proxyReq', (req) => {
+          req.removeHeader('origin');
+          req.removeHeader('cookie');
+          if (key) req.setHeader('Authorization', `Bearer ${key}`);
+        });
+      },
+    },
+  };
+}
 
 const requireFrom = createRequire(import.meta.url);
 
@@ -75,8 +100,13 @@ function mathjaxExtensions(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), pdfjsAssets(), mathjaxExtensions()],
-  server: { port: 5173, proxy: ollamaProxy },
-  preview: { port: 4173, proxy: ollamaProxy },
+export default defineConfig(({ mode }) => {
+  // '' = read every variable in .env / .env.local, not only VITE_ ones. Nothing here is
+  // exposed to the browser: only the proxy uses it.
+  const proxy = { ...ollamaProxy, ...genaiProxy(loadEnv(mode, process.cwd(), '')) };
+  return {
+    plugins: [react(), pdfjsAssets(), mathjaxExtensions()],
+    server: { port: 5173, proxy },
+    preview: { port: 4173, proxy },
+  };
 });

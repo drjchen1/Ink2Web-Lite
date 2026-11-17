@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { ModelInfo, Settings } from '../types.ts';
+import type { ModelInfo, Provider, Settings } from '../types.ts';
+import { PROVIDERS } from '../lib/model.ts';
 import { PromptInspector } from './PromptInspector.tsx';
 import type { PromptLibrary } from '../lib/promptLibrary.ts';
 import { BUILTIN_IDS, BUILTIN_PROMPTS, promptSizeHint } from '../lib/prompts.ts';
@@ -49,11 +50,39 @@ export function SettingsPanel({
     if (n !== settings.numCtx) onChange({ numCtx: n });
   };
 
+  const genai = settings.provider === 'genai';
+  const switchTo = (provider: Provider) => {
+    if (provider === settings.provider) return;
+    // Each provider keeps its own model; the list reloads for the new one.
+    onChange({ provider, model: settings.lastModels[provider] ?? '' });
+  };
+
   return (
     <div className="settings">
+      <fieldset className="field provider-set" disabled={disabled}>
+        <legend>Where the model runs</legend>
+        <div className="seg" role="group" aria-label="Where the model runs">
+          {(Object.keys(PROVIDERS) as Provider[]).map((p) => (
+            <button key={p} type="button" aria-pressed={settings.provider === p} onClick={() => switchTo(p)}>
+              {p === 'genai' && <span aria-hidden="true">☁ </span>}
+              {PROVIDERS[p].label}
+            </button>
+          ))}
+        </div>
+        {genai ? (
+          <p className="warn provider-note">
+            <strong>Pages are sent to Purdue GenAI Studio</strong> (Purdue-run servers; approved for public and sensitive L2
+            data). Use it for your own notes, <strong>never for student work</strong> (FERPA). Your saved work and project
+            files still stay in this browser.
+          </p>
+        ) : (
+          <p className="hint">Everything stays on this computer. Nothing is uploaded.</p>
+        )}
+      </fieldset>
+
       <div className="grid">
         <div className="field">
-          <label htmlFor="model">Ollama vision model</label>
+          <label htmlFor="model">{genai ? 'GenAI Studio model' : 'Ollama vision model'}</label>
           <div className="row">
             <select
               id="model"
@@ -65,7 +94,9 @@ export function SettingsPanel({
               {!models.length && <option value="">{loadingModels ? 'Loading…' : 'No models found'}</option>}
               {models.map((m) => (
                 <option key={m.name} value={m.name}>
-                  {m.name} · {m.sizeGB.toFixed(1)} GB{m.vision === false ? ' · no vision' : ''}
+                  {m.name}
+                  {m.hosted ? '' : ` · ${m.sizeGB.toFixed(1)} GB`}
+                  {m.vision === false ? ' · no vision' : ''}
                 </option>
               ))}
             </select>
@@ -79,7 +110,11 @@ export function SettingsPanel({
                 {modelError}
               </span>
             ) : selected?.vision === false ? (
-              <span className="error-text">This model can’t read images. Pick a vision model (e.g. pull one with “ollama pull …”).</span>
+              <span className="error-text">
+                This model can’t read images. Pick a vision model{genai ? '.' : ' (e.g. pull one with “ollama pull …”).'}
+              </span>
+            ) : genai ? (
+              'Choose a model that reads images (for example a Qwen VL or Gemma model). Large models do best with the Larger models prompt below.'
             ) : (
               'Recommended: qwen3.5:4b-mlx on Apple Silicon, otherwise qwen3-vl:4b-instruct. On a more powerful computer, try a larger model with the Larger models prompt below.'
             )}
@@ -153,6 +188,12 @@ export function SettingsPanel({
 
       <details>
         <summary>Advanced</summary>
+        {genai ? (
+          <p className="hint">
+            GenAI Studio is reached through this app’s own server, which adds your API key from <code>.env.local</code> (see
+            README › GenAI Studio). The key never reaches the browser.
+          </p>
+        ) : (
         <div className="grid">
           <div className="field">
             <label htmlFor="base">Ollama URL</label>
@@ -185,6 +226,7 @@ export function SettingsPanel({
             <p className="hint">Must fit the image plus the transcription. 8192 is enough for most pages; 4096 saves memory on 8 GB Macs.</p>
           </div>
         </div>
+        )}
         <PromptInspector
           customPrompt={customPrompt}
           onCustomPrompt={onCustomPrompt}

@@ -1,5 +1,6 @@
 import type { Box, Figure, Page, Settings } from '../types.ts';
-import { chat, type ChatMessage } from './ollama.ts';
+import type { ChatMessage } from './ollama.ts';
+import { chat, endpoint } from './model.ts';
 import { REDRAW_SCHEMA, REDRAW_SYSTEM, notesAround, redrawPrompt } from './redraw/prompt.ts';
 import { specConversation, type RedrawOutcome } from './redraw/conversation.ts';
 
@@ -52,7 +53,7 @@ export async function convertPage(
    */
   prompt: string = transcribePrompt(),
 ): Promise<{ source: string; figures: Figure[] }> {
-  const base = { baseUrl: settings.baseUrl, model: settings.model, disableThinking: thinking, signal };
+  const base = { ...endpoint(settings), model: settings.model, disableThinking: thinking, signal };
   const layoutPromise = pageLayout(page.image);
 
   let looped = false;
@@ -195,7 +196,7 @@ export async function rereadRegion(
   let looped = false;
   let checkedAt = 0;
   const raw = await chat({
-    baseUrl: settings.baseUrl,
+    ...endpoint(settings),
     model: settings.model,
     disableThinking: thinking,
     signal,
@@ -245,7 +246,7 @@ export async function redrawFigure(
   return specConversation(
     (msgs) =>
       chat({
-        baseUrl: settings.baseUrl,
+        ...endpoint(settings),
         model: settings.model,
         disableThinking: thinking,
         signal,

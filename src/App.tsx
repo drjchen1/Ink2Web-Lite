@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { Box, Figure, ModelInfo, Page, PageStatus, Settings } from './types.ts';
-import { listModels } from './lib/ollama.ts';
+import { PROVIDERS, asProvider, listModels, pickModel } from './lib/model.ts';
 import { ACCEPT, loadFile } from './lib/images.ts';
 import { convertPage, redrawFigure, rereadRegion } from './lib/pipeline.ts';
 import { buildDocument, downloadHtml, looksLikeFileName } from './lib/exportHtml.ts';
@@ -29,6 +29,8 @@ import { ExportPanel } from './components/ExportPanel.tsx';
 
 const SETTINGS_KEY = 'ink2web-lite:settings';
 const DEFAULTS: Settings = {
+  provider: 'ollama',
+  lastModels: {},
   baseUrl: '/ollama',
   model: '',
   detail: 1344,
@@ -41,7 +43,12 @@ const DEFAULTS: Settings = {
 function loadSettings(): Settings {
   try {
     const s = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<Settings>) };
-    return { ...s, promptSet: asBuiltinId(s.promptSet) };
+    return {
+      ...s,
+      provider: asProvider(s.provider),
+      lastModels: s.lastModels && typeof s.lastModels === 'object' ? s.lastModels : {},
+      promptSet: asBuiltinId(s.promptSet),
+    };
   } catch {
     return DEFAULTS;
   }
@@ -162,7 +169,16 @@ export default function App() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const patchSettings = useCallback((p: Partial<Settings>) => setSettings((s) => ({ ...s, ...p })), []);
+  const patchSettings = useCallback(
+    (p: Partial<Settings>) =>
+      setSettings((s) => {
+        const n = { ...s, ...p };
+        // Remember each provider's model, so switching back restores it (3.0).
+        if (p.model) n.lastModels = { ...n.lastModels, [n.provider]: p.model };
+        return n;
+      }),
+    [],
+  );
 
   /* ---------- saved work: restore offer + autosave ---------- */
 
@@ -276,29 +292,36 @@ export default function App() {
 
   /* ---------- models ---------- */
 
+  /** Only the latest model list counts (switching provider while one loads). */
+  const modelsRequest = useRef(0);
   const refreshModels = useCallback(async () => {
+    const n = ++modelsRequest.current;
+    const s = settingsRef.current;
     setLoadingModels(true);
     setModelError('');
     try {
-      const list = await listModels(settingsRef.current.baseUrl);
+      const list = await listModels(s);
+      if (n !== modelsRequest.current) return;
       setModels(list);
-      if (!list.length) setModelError('Ollama is running but has no models. Pull a vision model first.');
+      if (!list.length)
+        setModelError(
+          s.provider === 'genai' ? 'GenAI Studio returned no models for this API key.' : 'Ollama is running but has no models. Pull a vision model first.',
+        );
       const current = settingsRef.current.model;
-      if (!list.some((m) => m.name === current)) {
-        patchSettings({ model: (list.find((m) => m.vision !== false) ?? list[0])?.name ?? '' });
-      }
+      if (!list.some((m) => m.name === current)) patchSettings({ model: pickModel(list) });
     } catch (e) {
+      if (n !== modelsRequest.current) return;
       setModels([]);
       setModelError((e as Error).message);
     } finally {
-      setLoadingModels(false);
+      if (n === modelsRequest.current) setLoadingModels(false);
     }
   }, [patchSettings]);
 
   useEffect(() => {
     const t = setTimeout(refreshModels, 300);
     return () => clearTimeout(t);
-  }, [settings.baseUrl, refreshModels]);
+  }, [settings.baseUrl, settings.provider, refreshModels]);
 
   /* ---------- files ---------- */
 
@@ -603,6 +626,12 @@ export default function App() {
           >
             <span className="sr-only">Model and settings: </span>
             {modelProblem ? '⚠ ' : ''}
+            {settings.provider === 'genai' && (
+              <span title={`Runs on ${PROVIDERS.genai.label}`}>
+                <span aria-hidden="true">☁ </span>
+                <span className="sr-only">{PROVIDERS.genai.label}: </span>
+              </span>
+            )}
             {settings.model || (loadingModels ? 'Loading models…' : 'Choose a model')}
           </button>
           <button type="button" className="primary" onClick={() => setExportOpen(true)} disabled={!pages.length} aria-haspopup="dialog">
@@ -709,7 +738,11 @@ export default function App() {
           ) : (
             <section className="welcome" aria-labelledby="welcome-h">
               <h1 id="welcome-h">Handwritten math → accessible HTML</h1>
-              <p className="lead">Everything runs on your own computer. Nothing leaves it.</p>
+              <p className="lead">
+                  {settings.provider === 'genai'
+                    ? 'Pages are read by Purdue GenAI Studio; your work is saved only in this browser. Use it for your own notes, never for student work.'
+                    : 'Everything runs on your own computer. Nothing leaves it.'}
+                </p>
               <div className="drop">
                 <p>Drop PDFs or photos of handwritten notes anywhere in this window, paste an image, or</p>
                 <div className="actions center">

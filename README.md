@@ -2,7 +2,7 @@
 
 Ink2Web Lite turns handwritten math notes (scanned PDFs or photos) into clean, accessible HTML. Equations are rendered with MathJax, and hand-drawn figures are extracted as images with alt text.
 
-Everything runs on your own computer. The app uses a vision model running locally in [Ollama](https://ollama.com), so:
+By default everything runs on your own computer. The app uses a vision model running locally in [Ollama](https://ollama.com), so:
 
 - 🔒 **Your notes never leave your machine.** There are no cloud uploads.
 - ⚡ **No API keys or subscriptions** are needed.
@@ -10,7 +10,9 @@ Everything runs on your own computer. The app uses a vision model running locall
 
 Ink2Web Lite is an **assistant, not a one-click converter**: the model does a first transcription, and you review and lightly edit it before exporting. Click any part of the preview to fix it in place; your work is saved as you go.
 
-Version 2.2.3. For step-by-step usage, see **[HELP.md](HELP.md)**.
+**New in 3.0:** Purdue users can switch to **Purdue GenAI Studio** instead, for much larger models. Local stays the default; see [Purdue GenAI Studio](#purdue-genai-studio-optional).
+
+Version 3.0.0. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
@@ -42,6 +44,13 @@ Run `npm test` after changes, and compare a few pages you know well before and a
 ---
 
 ## What's new
+
+### 3.0.0
+- **A second place for the model to run: Purdue GenAI Studio.** Under **Model and settings › Where the model runs**, choose **This computer (Ollama)** (the default) or **Purdue GenAI Studio**, then pick one of its hosted models. Everything (convert, re-read, redraw, figures, export) works the same with either.
+- **The API key stays out of the browser.** The app's own server forwards requests to GenAI Studio and adds the key from `.env.local`. Setup below.
+- **Rate limits handled:** a request GenAI Studio turns away for being too frequent waits and is retried. A model that doesn't support structured output is asked again without it.
+- **Always visible:** a ☁ on the model button and a note in the settings when pages go to GenAI Studio. Each provider remembers its own model.
+- Why 3.0: until now, nothing ever left your computer. That is still the default, but it's no longer the only mode.
 
 ### 2.2.3
 - **Figures side by side.** Drawings that sit next to each other on the page are shown next to each other in the document, in one row. The app detects this when converting; in a figure's panel, **Side by side with figure n** does it by hand. Each figure's **Width** is its share of the line; text doesn't flow beside a row, and on narrow screens the figures stack.
@@ -200,6 +209,23 @@ ollama pull qwen3-vl:4b-instruct
 
 ---
 
+## Purdue GenAI Studio (optional)
+
+[Purdue GenAI Studio](https://genai.rcac.purdue.edu) runs open-weight models on Purdue's servers, including vision models much larger than a laptop can hold.
+
+1. Sign in to GenAI Studio, open **Settings › Account › API Keys**, and create a key.
+2. In the project folder, copy `.env.example` to `.env.local` and paste the key:
+   ```bash
+   GENAI_API_KEY=sk-...
+   ```
+   `.env.local` is git-ignored. Never commit the key or put it anywhere the browser can read it.
+3. Restart `npm run dev` (or `npm run preview`).
+4. In the app: **Model and settings › Where the model runs › Purdue GenAI Studio**, then choose a model that reads images. Try the **Larger models** prompt.
+
+**What to send:** GenAI Studio is approved for public and sensitive (L2) data, not restricted data. Your own lecture notes are fine; **never student work** (FERPA). Saved work and project files still stay in your browser either way.
+
+**Good to know:** the key is added by the dev/preview server on this computer, so keep the server on `localhost` (don't start it with `--host` on a shared network). Pages convert one at a time, and a rate-limited request waits and retries by itself.
+
 ## Running the app
 
 From the project folder:
@@ -289,6 +315,8 @@ src/
     PromptInspector.tsx view, change, and save transcription prompts
   lib/
     ollama.ts           talks to the local Ollama server
+    genai.ts            talks to Purdue GenAI Studio (OpenAI-compatible API, via the /genai proxy)
+    model.ts            picks Ollama or GenAI Studio for each request
     prompts.ts          instructions given to the model
     promptLibrary.ts    saved prompts and the one that starts with the app (localStorage)
     pipeline.ts         converts one page from start to finish (default or custom prompt)

@@ -10,6 +10,8 @@ export interface ChatMessage {
 }
 
 export interface ChatRequest {
+  /** Which server answers (3.0). Missing means Ollama. */
+  provider?: 'ollama' | 'genai';
   baseUrl: string;
   model: string;
   messages: ChatMessage[];
@@ -22,6 +24,8 @@ export interface ChatRequest {
   signal?: AbortSignal;
   /** Called with each streamed text chunk. Return false to stop early. */
   onToken?: (chunk: string, full: string) => boolean | void;
+  /** GenAI Studio only: called when a rate-limited request waits before retrying. */
+  onWait?: (seconds: number) => void;
 }
 
 export class OllamaError extends Error {}
