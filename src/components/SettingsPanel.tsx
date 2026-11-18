@@ -51,7 +51,6 @@ export function SettingsPanel({
   };
 
   const genai = settings.provider === 'genai';
-  const oc = settings.provider === 'opencode';
   const switchTo = (provider: Provider) => {
     if (provider === settings.provider) return;
     // Each provider keeps its own model; the list reloads for the new one.
@@ -65,18 +64,12 @@ export function SettingsPanel({
         <div className="seg" role="group" aria-label="Where the model runs">
           {(Object.keys(PROVIDERS) as Provider[]).map((p) => (
             <button key={p} type="button" aria-pressed={settings.provider === p} onClick={() => switchTo(p)}>
-              {p !== 'ollama' && <span aria-hidden="true">☁ </span>}
+              {p === 'genai' && <span aria-hidden="true">☁ </span>}
               {PROVIDERS[p].label}
             </button>
           ))}
         </div>
-        {oc ? (
-          <p className="warn provider-note">
-            <strong>Pages are sent through OpenCode</strong> to the company that runs the model you pick. Free models may keep
-            prompts and use them to train models. Use it for trying models on your own notes, <strong>never for student
-            work</strong>. Your saved work and project files still stay in this browser.
-          </p>
-        ) : genai ? (
+        {genai ? (
           <p className="warn provider-note">
             <strong>Pages are sent to Purdue GenAI Studio</strong> (Purdue-run servers; approved for public and sensitive L2
             data). Use it for your own notes, <strong>never for student work</strong> (FERPA). Your saved work and project
@@ -89,7 +82,7 @@ export function SettingsPanel({
 
       <div className="grid">
         <div className="field">
-          <label htmlFor="model">{oc ? 'OpenCode model' : genai ? 'GenAI Studio model' : 'Ollama vision model'}</label>
+          <label htmlFor="model">{genai ? 'GenAI Studio model' : 'Ollama vision model'}</label>
           <div className="row">
             <select
               id="model"
@@ -101,8 +94,7 @@ export function SettingsPanel({
               {!models.length && <option value="">{loadingModels ? 'Loading…' : 'No models found'}</option>}
               {models.map((m) => (
                 <option key={m.name} value={m.name}>
-                  {m.label ? `${m.label} (${m.name})` : m.name}
-                  {m.free ? ' · free' : ''}
+                  {m.name}
                   {m.hosted ? '' : ` · ${m.sizeGB.toFixed(1)} GB`}
                   {m.vision === false ? ' · no vision' : ''}
                 </option>
@@ -119,10 +111,8 @@ export function SettingsPanel({
               </span>
             ) : selected?.vision === false ? (
               <span className="error-text">
-                This model can’t read images. Pick a vision model{genai || oc ? '.' : ' (e.g. pull one with “ollama pull …”).'}
+                This model can’t read images. Pick a vision model{genai ? '.' : ' (e.g. pull one with “ollama pull …”).'}
               </span>
-            ) : oc ? (
-              'OpenCode’s own models, the ones that read images first. Models marked “no vision” can’t read pages. Free models share one usage limit.'
             ) : genai ? (
               'Choose a model that reads images (for example a Qwen VL or Gemma model). Large models do best with the Larger models prompt below.'
             ) : (
@@ -198,13 +188,7 @@ export function SettingsPanel({
 
       <details>
         <summary>Advanced</summary>
-        {oc ? (
-          <p className="hint">
-            OpenCode is reached through this app’s own server, which forwards to <code>opencode serve</code> on this computer
-            (port 4096) and adds its password from <code>.env.local</code> (see README › OpenCode). Each request is a new
-            OpenCode session with every tool refused, deleted afterwards.
-          </p>
-        ) : genai ? (
+        {genai ? (
           <p className="hint">
             GenAI Studio is reached through this app’s own server, which adds your API key from <code>.env.local</code> (see
             README › GenAI Studio). The key never reaches the browser.

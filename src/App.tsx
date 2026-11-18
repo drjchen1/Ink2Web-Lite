@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { Box, Figure, ModelInfo, Page, PageStatus, Settings } from './types.ts';
-import { PROVIDERS, asProvider, isHosted, listModels, pickModel } from './lib/model.ts';
-import { QUOTA_MESSAGE, QuotaError } from './lib/opencode.ts';
+import { PROVIDERS, asProvider, listModels, pickModel } from './lib/model.ts';
 import { ACCEPT, loadFile } from './lib/images.ts';
 import { convertPage, redrawFigure, rereadRegion } from './lib/pipeline.ts';
 import { buildDocument, downloadHtml, looksLikeFileName } from './lib/exportHtml.ts';
@@ -306,11 +305,7 @@ export default function App() {
       setModels(list);
       if (!list.length)
         setModelError(
-          s.provider === 'genai'
-            ? 'GenAI Studio returned no models for this API key.'
-            : s.provider === 'opencode'
-              ? 'OpenCode is running but lists no models. Log in to a provider in OpenCode (/connect), then Refresh.'
-              : 'Ollama is running but has no models. Pull a vision model first.',
+          s.provider === 'genai' ? 'GenAI Studio returned no models for this API key.' : 'Ollama is running but has no models. Pull a vision model first.',
         );
       const current = settingsRef.current.model;
       if (!list.some((m) => m.name === current)) patchSettings({ model: pickModel(list) });
@@ -393,8 +388,6 @@ export default function App() {
     runningRef.current = true;
     setRunning(true);
     const thinking = modelsRef.current.find((m) => m.name === s.model)?.thinking ?? false;
-    /** Stopped by OpenCode's usage limit: don't pick the queue up again below. */
-    let halted = false;
     try {
       for (;;) {
         // pagesRef is current here: the previous page's status changed during the await below.
@@ -426,15 +419,6 @@ export default function App() {
             setStatus(patch.status === 'done' ? `Stopped. Page ${n} keeps its previous version.` : 'Stopped.');
             break;
           }
-          // OpenCode's free limit covers every free model: stop instead of failing page after page (3.1.1).
-          if (e instanceof QuotaError) {
-            pagesRef.current
-              .filter((p) => p.status === 'queued')
-              .forEach((p) => dispatch({ type: 'update', id: p.id, patch: { status: p.source ? 'done' : 'idle' } }));
-            setStatus(QUOTA_MESSAGE);
-            halted = true;
-            break;
-          }
         }
       }
     } finally {
@@ -444,7 +428,6 @@ export default function App() {
       setLive(null);
     }
     // A page may have been queued just as the loop finished; pick it up.
-    if (halted) return;
     setTimeout(() => {
       if (pagesRef.current.some((p) => p.status === 'queued')) void processQueue();
     }, 0);
@@ -643,10 +626,10 @@ export default function App() {
           >
             <span className="sr-only">Model and settings: </span>
             {modelProblem ? '⚠ ' : ''}
-            {isHosted(settings.provider) && (
-              <span title={`Runs on ${PROVIDERS[settings.provider].label}`}>
+            {settings.provider === 'genai' && (
+              <span title={`Runs on ${PROVIDERS.genai.label}`}>
                 <span aria-hidden="true">☁ </span>
-                <span className="sr-only">{PROVIDERS[settings.provider].label}: </span>
+                <span className="sr-only">{PROVIDERS.genai.label}: </span>
               </span>
             )}
             {settings.model || (loadingModels ? 'Loading models…' : 'Choose a model')}
@@ -756,9 +739,7 @@ export default function App() {
             <section className="welcome" aria-labelledby="welcome-h">
               <h1 id="welcome-h">Handwritten math → accessible HTML</h1>
               <p className="lead">
-                  {settings.provider === 'opencode'
-                    ? 'Pages are read by a model reached through OpenCode; your work is saved only in this browser. Use it for your own notes, never for student work.'
-                    : settings.provider === 'genai'
+                  {settings.provider === 'genai'
                     ? 'Pages are read by Purdue GenAI Studio; your work is saved only in this browser. Use it for your own notes, never for student work.'
                     : 'Everything runs on your own computer. Nothing leaves it.'}
                 </p>
