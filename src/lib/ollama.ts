@@ -11,7 +11,7 @@ export interface ChatMessage {
 
 export interface ChatRequest {
   /** Which server answers (3.0). Missing means Ollama. */
-  provider?: 'ollama' | 'genai';
+  provider?: 'ollama' | 'genai' | 'opencode';
   baseUrl: string;
   model: string;
   messages: ChatMessage[];

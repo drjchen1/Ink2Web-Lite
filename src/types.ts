@@ -88,8 +88,8 @@ export interface Page {
  */
 export type AnnotationStyle = 'notes' | 'drawn';
 
-/** Where the model runs (3.0): on this computer, or on Purdue's GenAI Studio. */
-export type Provider = 'ollama' | 'genai';
+/** Where the model runs: on this computer, on Purdue's GenAI Studio (3.0), or through OpenCode (3.1). */
+export type Provider = 'ollama' | 'genai' | 'opencode';
 
 export interface Settings {
   /** Where the model runs (3.0). 'ollama' is the default and keeps everything local. */
@@ -122,6 +122,10 @@ export interface ModelInfo {
   thinking: boolean;
   /** Download size; for hosted models an estimate from the parameter count (0 if unknown). */
   sizeGB: number;
-  /** Runs on GenAI Studio rather than this computer (3.0). */
+  /** Runs on GenAI Studio or through OpenCode rather than this computer (3.0). */
   hosted?: boolean;
+  /** A friendlier name to show in the list (OpenCode, 3.1). */
+  label?: string;
+  /** Costs nothing to use (OpenCode, 3.1). */
+  free?: boolean;
 }

@@ -12,7 +12,9 @@ Ink2Web Lite is an **assistant, not a one-click converter**: the model does a fi
 
 **New in 3.0:** Purdue users can switch to **Purdue GenAI Studio** instead, for much larger models. Local stays the default; see [Purdue GenAI Studio](#purdue-genai-studio-optional).
 
-Version 3.0.0. For step-by-step usage, see **[HELP.md](HELP.md)**.
+**New in 3.1:** models reached through **OpenCode** (including its free models) are a third choice; see [OpenCode](#opencode-optional).
+
+Version 3.1.1. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
@@ -44,6 +46,18 @@ Run `npm test` after changes, and compare a few pages you know well before and a
 ---
 
 ## What's new
+
+### 3.1.1
+- **OpenCode 2.** The app uses OpenCode 2's server API (`/api/...`), with the server password and working folder added by the app's own server. 3.1.0 was written for the older API and couldn't list models. Setup below now includes the password.
+- **OpenCode's own models only.** The OpenCode list no longer repeats the Purdue models from `opencode.jsonc`; those are under **Purdue GenAI Studio**.
+- **The free usage limit stops conversion.** When OpenCode says its free limit is reached, the app stops at once (no more pages, figure passes, or repair rounds) and explains that the limit covers every free model.
+- Each request now refuses every OpenCode tool and permission, and its session is deleted afterwards, as before.
+
+### 3.1.0
+- **A third place for the model to run: OpenCode.** Under **Model and settings › Where the model runs**, choose **OpenCode** and pick any model from the providers you're logged in to in OpenCode, including its free ones. Models that read images are listed first, and free ones are marked.
+- **OpenCode is only the gateway.** Each request is a new OpenCode session with every tool refused, using the app's own prompts, and it's deleted afterwards. Convert, re-read, and redraw work as with the other two.
+- The app's own server forwards requests to `opencode serve` on this computer, so there is no CORS setup. Setup below.
+- Good to know: OpenCode answers in one piece, so there's no live text while a page converts. Structured answers (figure boxes, redraw specs) are asked for in words, and the existing clean-up handles the rest.
 
 ### 3.0.0
 - **A second place for the model to run: Purdue GenAI Studio.** Under **Model and settings › Where the model runs**, choose **This computer (Ollama)** (the default) or **Purdue GenAI Studio**, then pick one of its hosted models. Everything (convert, re-read, redraw, figures, export) works the same with either.
@@ -226,6 +240,31 @@ ollama pull qwen3-vl:4b-instruct
 
 **Good to know:** the key is added by the dev/preview server on this computer, so keep the server on `localhost` (don't start it with `--host` on a shared network). Pages convert one at a time, and a rate-limited request waits and retries by itself.
 
+## OpenCode (optional)
+
+[OpenCode](https://opencode.ai) can reach many hosted models, including free ones. Those only answer requests that come through OpenCode itself, so Ink2Web Lite talks to OpenCode's own local server. This needs **OpenCode 2** (`opencode --version`).
+
+1. **Pick a password** (any word; it only protects the server on this computer) and put it in `.env.local` in the app folder:
+   ```
+   OPENCODE_SERVER_PASSWORD=ink2web
+   ```
+2. **Start the server** in its own folder, with the same password, and leave it running:
+   ```bash
+   mkdir -p ~/ink2web-opencode && cd ~/ink2web-opencode
+   OPENCODE_SERVER_PASSWORD=ink2web opencode serve --port 4096
+   ```
+   Your OpenCode logins are used as they are. Tip: put `export OPENCODE_SERVER_PASSWORD=ink2web` in `~/.zshrc` so a plain `opencode serve --port 4096` works.
+3. **Start the app** with `npm run dev` (restart it if it was running, so it reads `.env.local`).
+4. In the app: **Model and settings › Where the model runs › OpenCode**, **Refresh**, then choose a model that reads images. Many free models are text-only (marked **no vision**) and can't read pages. Try the **Larger models** prompt.
+
+The list shows OpenCode's own models only. Other providers in your `opencode.jsonc` (such as Purdue) are left out; use **Purdue GenAI Studio** for those.
+
+Check from a terminal: `curl -u opencode:ink2web -H "x-opencode-directory: $HOME/ink2web-opencode" http://127.0.0.1:4096/api/model` should list models. If OpenCode runs on another port or folder, set `OPENCODE_URL` or `OPENCODE_DIRECTORY` in `.env.local` (see `.env.example`).
+
+**The free usage limit.** OpenCode's free models share one usage limit, which OpenCode doesn't publish. A page can take several requests, each with a large image, so converting uses it up much faster than coding does, and the same limit then also blocks free models in OpenCode itself. When OpenCode refuses, Ink2Web stops converting and says so; switching to another free model doesn't help. Use OpenCode to try a model on a page or two, and Purdue GenAI Studio or Ollama for whole documents.
+
+**What to send:** pages go to whichever company runs the chosen model. Free models in particular may keep prompts and use them for training. Use it for trying models on your own notes; **never for student work** (FERPA). Saved work and project files still stay in your browser.
+
 ## Running the app
 
 From the project folder:
@@ -316,7 +355,8 @@ src/
   lib/
     ollama.ts           talks to the local Ollama server
     genai.ts            talks to Purdue GenAI Studio (OpenAI-compatible API, via the /genai proxy)
-    model.ts            picks Ollama or GenAI Studio for each request
+    opencode.ts         talks to a local OpenCode 2 server (via the /opencode proxy), one throw-away session per request
+    model.ts            picks Ollama, GenAI Studio, or OpenCode for each request
     prompts.ts          instructions given to the model
     promptLibrary.ts    saved prompts and the one that starts with the app (localStorage)
     pipeline.ts         converts one page from start to finish (default or custom prompt)

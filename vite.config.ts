@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 
 // Ollama listens on 127.0.0.1:11434. The dev server proxies /ollama -> Ollama so the
 // browser never makes a cross-origin request (no OLLAMA_ORIGINS setup needed).
@@ -40,6 +41,37 @@ function genaiProxy(env: Record<string, string>): Record<string, ProxyOptions> {
           req.removeHeader('origin');
           req.removeHeader('cookie');
           if (key) req.setHeader('Authorization', `Bearer ${key}`);
+        });
+      },
+    },
+  };
+}
+
+/**
+ * OpenCode (3.1). The browser calls /opencode/...; this server forwards to a local
+ * `opencode serve` (OpenCode 2, default http://127.0.0.1:4096) and adds what OpenCode 2
+ * needs: its server password (HTTP basic, user "opencode") and the folder it works in.
+ * From .env.local: OPENCODE_SERVER_PASSWORD, and optionally OPENCODE_URL and
+ * OPENCODE_DIRECTORY (default ~/ink2web-opencode).
+ */
+function opencodeProxy(env: Record<string, string>): Record<string, ProxyOptions> {
+  const pick = (k: string) => env[k] || process.env[k] || '';
+  const password = pick('OPENCODE_SERVER_PASSWORD');
+  const user = pick('OPENCODE_SERVER_USERNAME') || 'opencode';
+  const dir = pick('OPENCODE_DIRECTORY') || path.join(os.homedir(), 'ink2web-opencode');
+  return {
+    '/opencode': {
+      target: pick('OPENCODE_URL') || 'http://127.0.0.1:4096',
+      changeOrigin: true,
+      timeout: 600_000,
+      proxyTimeout: 600_000,
+      rewrite: (p: string) => p.replace(/^\/opencode/, ''),
+      configure: (proxy) => {
+        proxy.on('proxyReq', (req) => {
+          req.removeHeader('origin');
+          req.removeHeader('cookie');
+          req.setHeader('x-opencode-directory', dir);
+          if (password) req.setHeader('Authorization', `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`);
         });
       },
     },
@@ -103,7 +135,8 @@ function mathjaxExtensions(): Plugin {
 export default defineConfig(({ mode }) => {
   // '' = read every variable in .env / .env.local, not only VITE_ ones. Nothing here is
   // exposed to the browser: only the proxy uses it.
-  const proxy = { ...ollamaProxy, ...genaiProxy(loadEnv(mode, process.cwd(), '')) };
+  const env = loadEnv(mode, process.cwd(), '');
+  const proxy = { ...ollamaProxy, ...genaiProxy(env), ...opencodeProxy(env) };
   return {
     plugins: [react(), pdfjsAssets(), mathjaxExtensions()],
     server: { port: 5173, proxy },

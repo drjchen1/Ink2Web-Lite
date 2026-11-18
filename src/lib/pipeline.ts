@@ -1,6 +1,7 @@
 import type { Box, Figure, Page, Settings } from '../types.ts';
 import type { ChatMessage } from './ollama.ts';
 import { chat, endpoint } from './model.ts';
+import { QuotaError } from './opencode.ts';
 import { REDRAW_SCHEMA, REDRAW_SYSTEM, notesAround, redrawPrompt } from './redraw/prompt.ts';
 import { specConversation, type RedrawOutcome } from './redraw/conversation.ts';
 
@@ -102,7 +103,7 @@ export async function convertPage(
       });
       modelBoxes = parseBoxes(answer, descriptions.length, page.width, page.height);
     } catch (e) {
-      if ((e as Error).name === 'AbortError') throw e;
+      if ((e as Error).name === 'AbortError' || e instanceof QuotaError) throw e;
     }
   }
 
@@ -142,7 +143,7 @@ export async function convertPage(
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .trim();
     } catch (e) {
-      if ((e as Error).name === 'AbortError') throw e;
+      if ((e as Error).name === 'AbortError' || e instanceof QuotaError) throw e;
     }
     drafts.push({ id: nextId++, box: regions[j], alt, needsReview: true, autoDetected: true, placed: true });
   }
