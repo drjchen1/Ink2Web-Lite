@@ -12,7 +12,9 @@ Ink2Web Lite is an **assistant, not a one-click converter**: the model does a fi
 
 **New in 3.0:** Purdue users can switch to **Purdue GenAI Studio** instead, for much larger models. Local stays the default; see [Purdue GenAI Studio](#purdue-genai-studio-optional).
 
-Version 3.0.0. For step-by-step usage, see **[HELP.md](HELP.md)**.
+**New in 3.2:** a **Page cards** export look, and, with larger models, a short title and a **detailed description** for every figure. See [What's new](#whats-new).
+
+Version 3.2.0. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
@@ -44,6 +46,13 @@ Run `npm test` after changes, and compare a few pages you know well before and a
 ---
 
 ## What's new
+
+### 3.2.0
+- **A new export look: Page cards.** Under **Export › Look**, choose **Page cards** (now the default) or **Classic**. Each page of your notes sits on its own card with a "Page 1 of 3" badge; the title and an optional link to the original PDF head the first card; every figure has a caption bar. Printing puts one card on each letter-size sheet. Equations on their own line can be reached with Tab.
+- **Figure titles and detailed descriptions.** With the **Larger models** prompt, the app now asks the model about each figure after a page converts (one extra request per figure), using the figure's crop and the notes around it. It writes a **short title**, which becomes the alt text, and a **detailed description** of a few sentences (axes, curves, marked points, shading), math included. The description appears under the figure as a collapsed **Detailed description**, in both looks. Turn it off under **Model and settings › Transcription prompt**.
+- **In the figure panel:** a **Detailed description** box to edit or write one by hand, and **Describe with the model** to ask again for one figure.
+- Project files keep the descriptions. Small models still work as before; the extra pass only runs with the Larger models prompt.
+- (3.1 was an experiment with OpenCode models that didn't make it in.)
 
 ### 3.0.0
 - **A second place for the model to run: Purdue GenAI Studio.** Under **Model and settings › Where the model runs**, choose **This computer (Ollama)** (the default) or **Purdue GenAI Studio**, then pick one of its hosted models. Everything (convert, re-read, redraw, figures, export) works the same with either.
@@ -325,7 +334,8 @@ src/
     transcript.ts       cleans model output; figure lines; moves drawn notes out
     markdown.ts         Markdown (+ marks, "where" sentences) → accessible HTML
     editing.ts          click-to-edit blocks; toolbar marks; alt text check, Move to notes; things to check
-    exportHtml.ts       builds the downloadable HTML document
+    exportHtml.ts       builds the downloadable HTML document (Classic and Page cards looks)
+    describe.ts         figure titles and detailed descriptions (larger models)
     figureRows.ts       figures side by side (rows)
     storage.ts          autosave (IndexedDB) and project files
     images.ts           PDF/image loading, contrast boost, cropping

@@ -52,6 +52,8 @@ interface Props {
   onReread: (page: Page, box: Box, signal: AbortSignal) => Promise<string>;
   /** Asks the model for a figure's redraw spec (2.2); resolves with a proposal. */
   onRedraw: (page: Page, fig: Figure, signal: AbortSignal) => Promise<RedrawOutcome>;
+  /** Asks the model for a figure's title and detailed description (3.2). */
+  onDescribe: (page: Page, fig: Figure, signal: AbortSignal) => Promise<{ title: string; description: string } | null>;
 }
 
 /** The text block open for editing in place. */
@@ -84,7 +86,7 @@ function useDebounced<T>(value: T, ms: number): T {
  * document on the right. Text blocks and figures open in place when clicked.
  */
 export const PageView = memo(function PageView(props: Props) {
-  const { page, index, count, liveText, canConvert, busy, focusFigure, onUpdate, onConvert, onUnqueue, onRemove, onMove, onGo, onReread, onRedraw } =
+  const { page, index, count, liveText, canConvert, busy, focusFigure, onUpdate, onConvert, onUnqueue, onRemove, onMove, onGo, onReread, onRedraw, onDescribe } =
     props;
   const pageNo = index + 1;
   const [tab, setTab] = useState<'preview' | 'edit'>('preview');
@@ -413,6 +415,11 @@ export const PageView = memo(function PageView(props: Props) {
         const p = latest.current;
         const f = p.figures.find((x) => x.id === activeFig.id) ?? activeFig;
         return onRedraw(p, f, signal);
+      }}
+      onDescribe={(signal) => {
+        const p = latest.current;
+        const f = p.figures.find((x) => x.id === activeFig.id) ?? activeFig;
+        return onDescribe(p, f, signal);
       }}
       redrawBlocked={
         !canConvert

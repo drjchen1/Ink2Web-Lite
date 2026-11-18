@@ -157,6 +157,18 @@ export function SettingsPanel({
             </span>
           </label>
         ))}
+        <label className="prompt-choice prompt-sub">
+          <input
+            type="checkbox"
+            checked={settings.describeFigures}
+            disabled={settings.promptSet !== 'large'}
+            onChange={(e) => onChange({ describeFigures: e.target.checked })}
+          />{' '}
+          <span>
+            With Larger models: also write a short title and a detailed description for each figure
+            <span className="hint">One more request per figure. The title becomes the alt text; the description appears under the figure.</span>
+          </span>
+        </label>
         <p id="prompt-set-help" className="hint" role="status">
           {customPrompt !== null
             ? 'A custom prompt is in use (Advanced › Transcription prompt); this choice applies once you switch back to the built-in prompt.'

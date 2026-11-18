@@ -3,6 +3,7 @@ import type { ChatMessage } from './ollama.ts';
 import { chat, endpoint } from './model.ts';
 import { REDRAW_SCHEMA, REDRAW_SYSTEM, notesAround, redrawPrompt } from './redraw/prompt.ts';
 import { specConversation, type RedrawOutcome } from './redraw/conversation.ts';
+import { DESCRIBE_SCHEMA, DESCRIBE_SYSTEM, describePrompt, parseDescription } from './describe.ts';
 
 export type { RedrawOutcome };
 import { cropBase64, cropFigure, modelImage, pageLayout, regionImage, snapToInk, squareImage } from './images.ts';
@@ -179,6 +180,19 @@ export async function convertPage(
     const widths = fitWidths(members.map((f) => f.width));
     members.forEach((f, i) => Object.assign(f, { width: widths[i], wrap: false, besideLines: 0, align: 'center' as const }));
   }
+  // Larger models (3.2): a short title (the alt text) and a detailed description per figure.
+  if (settings.promptSet === 'large' && settings.describeFigures) {
+    for (const f of figures) {
+      try {
+        const d = await describeFigure(page.image, numbered, f, settings, thinking, signal);
+        if (d?.title) f.alt = d.title;
+        if (d?.description) f.description = d.description;
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') throw e;
+        // Keep the transcription's description; the user can ask again from the figure panel.
+      }
+    }
+  }
   return { source: numbered, figures: figures.sort((a, b) => a.id - b.id) };
 }
 
@@ -256,4 +270,35 @@ export async function redrawFigure(
       }),
     messages,
   );
+}
+
+/* ---------------------------------------------------------------------------------
+ * Figure title and detailed description (3.2)
+ * ------------------------------------------------------------------------------- */
+
+/**
+ * Asks the model for one figure's short title (alt text) and detailed description, from
+ * its crop and the notes around it. Returns null when the answer isn't usable.
+ */
+export async function describeFigure(
+  image: Blob,
+  source: string,
+  fig: Pick<Figure, 'id' | 'box'>,
+  settings: Settings,
+  thinking: boolean,
+  signal: AbortSignal,
+): Promise<{ title: string; description: string } | null> {
+  const answer = await chat({
+    ...endpoint(settings),
+    model: settings.model,
+    disableThinking: thinking,
+    signal,
+    format: DESCRIBE_SCHEMA,
+    options: { temperature: 0, num_ctx: settings.numCtx, num_predict: 700 },
+    messages: [
+      { role: 'system', content: DESCRIBE_SYSTEM },
+      { role: 'user', content: describePrompt(notesAround(source, fig.id)), images: [await regionImage(image, fig.box, settings.enhance)] },
+    ],
+  });
+  return parseDescription(answer);
 }

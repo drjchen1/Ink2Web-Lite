@@ -1,6 +1,6 @@
 # Ink2Web Lite: User Guide
 
-This guide covers everyday use of Ink2Web Lite 3.0. For installation, see [README.md](README.md).
+This guide covers everyday use of Ink2Web Lite 3.2. For installation, see [README.md](README.md).
 
 > **Your work is saved as you go**, in this browser on this computer. To keep a copy you can move or back up, use **Save** in the top bar. See [Saving your work](#8-saving-your-work).
 
@@ -97,6 +97,8 @@ Both ask for the same formats, so notes, figures, editing, and export work the s
 If the chosen prompt doesn't fit the selected model's size, a hint suggests the other one. It's only a suggestion: a small model given the long prompt tends to drop rules, and a large model given the short one simply leaves some of its ability unused.
 
 A custom prompt (see [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt)) takes the place of this choice while it's in use.
+
+**Figure titles and descriptions (3.2).** With **Larger models** chosen, **also write a short title and a detailed description for each figure** is on by default. After a page converts, the model looks at each figure again, with the notes around it, and writes a short title (it becomes the alt text) and a few sentences describing the drawing. It's one more request per figure, so a page with figures takes a little longer. Untick it to skip the pass; you can still ask for one figure at a time from its panel.
 
 ### Image detail
 
@@ -344,6 +346,14 @@ Every figure needs alt text, the description a screen reader reads aloud. The ap
 
 The **Caption** is optional, visible text shown under the figure.
 
+### Detailed description (3.2)
+
+Alt text should be short. When a figure needs more (a graph with several marked points, a region between curves), add a **Detailed description**: a few sentences, with math in `$…$`. It appears under the figure as a collapsed **Detailed description** that readers open if they want it; printing shows it in full.
+
+- With the **Larger models** prompt, the app writes one for each figure as the page converts (see [Transcription prompt](#transcription-prompt-everyday-hardware-or-larger-models)).
+- **Describe with the model** (in the figure panel) asks again for this figure. It replaces both the alt text and the description, so it asks first.
+- Check it against the drawing, like the alt text: it should describe only what's drawn, not explain the math.
+
 ### Moving writing out of the alt text
 
 Small models sometimes copy the sentence written next to a drawing into the drawing's alt text, for example:
@@ -454,7 +464,9 @@ The **title** in the top bar becomes the exported page's title and main heading.
 Click **Export** (top bar):
 
 - **Before you export** lists what is still flagged on converted pages: figures with no alt text or alt text to check, figures whose crop needs checking, LaTeX warnings, and failed re-conversions. Click **Page n** to go straight there (a figure opens in its panel).
-- **Mark page boundaries** adds small "Page 2", "Page 3" dividers between pages.
+- **Look** (3.2): **Page cards** (the default) puts each page of your notes on its own card with a "Page 1 of 3" badge, a caption bar under every figure, and the title on the first card. Printing puts one card on each letter-size sheet and opens every detailed description. **Classic** is the single column of earlier versions. The choice is remembered.
+- **Show page badges** (Page cards) or **Mark page boundaries** (Classic) labels the pages.
+- **Link to the original** (Page cards, when the notes came from a PDF or image): adds "Open the original notes (FTC.pdf)" under the title. The link expects that file in the same folder as the HTML.
 - **Only converted pages are exported**; the dialog says how many are left out.
 
 **Download HTML** saves one `.html` file with all figures embedded. Viewers need an internet connection the first time they open it, because MathJax loads from a CDN.

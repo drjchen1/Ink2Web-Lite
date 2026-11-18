@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { Figure, FigureAlign } from '../types.ts';
 import { altTextIssue } from '../lib/editing.ts';
 import { figureHtml } from '../lib/exportHtml.ts';
@@ -33,6 +33,8 @@ interface Props {
   onRedraw: (signal: AbortSignal) => Promise<RedrawOutcome>;
   /** Why the model can't be asked now ('' when it can). */
   redrawBlocked: string;
+  /** Asks the model for a short title (alt text) and a detailed description (3.2). */
+  onDescribe: (signal: AbortSignal) => Promise<{ title: string; description: string } | null>;
   onClose: () => void;
 }
 
@@ -49,7 +51,32 @@ const ALIGNS: { value: FigureAlign; label: string }[] = [
 export function FigurePanel(props: Props) {
   const { fig: f, pageId, pageNo, pos, unitCount, focusAlt, onPatch, onMove, onSnap, onInsert, onDelete, onMoveToNotes, onRedraw, redrawBlocked, onClose } =
     props;
-  const { prevFigure: prev, row, onBeside } = props;
+  const { prevFigure: prev, row, onBeside, onDescribe } = props;
+  const [describing, setDescribing] = useState(false);
+  const [describeNote, setDescribeNote] = useState('');
+  const describeAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => describeAbort.current?.abort(), []);
+  const describe = async () => {
+    if ((f.alt.trim() || f.description?.trim()) && !window.confirm('Replace the alt text and the detailed description with new ones from the model?')) return;
+    const ac = new AbortController();
+    describeAbort.current = ac;
+    setDescribing(true);
+    setDescribeNote('Looking at the figure and the notes around it…');
+    try {
+      const d = await onDescribe(ac.signal);
+      if (ac.signal.aborted) return;
+      if (!d) setDescribeNote('The model didn’t give a usable answer. Try again, or write them yourself.');
+      else {
+        onPatch({ ...(d.title ? { alt: d.title } : {}), ...(d.description ? { description: d.description } : {}) });
+        setDescribeNote('Done. Check both against the drawing.');
+      }
+    } catch (e) {
+      setDescribeNote(ac.signal.aborted ? 'Stopped.' : (e as Error).message);
+    } finally {
+      if (describeAbort.current === ac) describeAbort.current = null;
+      setDescribing(false);
+    }
+  };
   const k = row ? row.indexOf(f.id) : -1;
   /** Beside the figure before it (the row goes on from there). */
   const besideOn = k > 0;
@@ -129,6 +156,31 @@ export function FigurePanel(props: Props) {
             >
               Move to notes
             </button>
+          </div>
+          <label htmlFor={`desc-${pid}`}>Detailed description (optional)</label>
+          <textarea
+            id={`desc-${pid}`}
+            rows={4}
+            value={f.description ?? ''}
+            aria-describedby={`deschelp-${pid}`}
+            onChange={(e) => onPatch({ description: e.target.value })}
+          />
+          <p id={`deschelp-${pid}`} className="hint">
+            A few sentences, math in $…$. Shown under the figure as a collapsed “Detailed description”.
+          </p>
+          <div className="actions alt-actions">
+            {describing ? (
+              <button type="button" onClick={() => describeAbort.current?.abort()}>
+                Stop
+              </button>
+            ) : (
+              <button type="button" onClick={describe} disabled={!!redrawBlocked} title={redrawBlocked || undefined}>
+                Describe with the model
+              </button>
+            )}
+            <span className="hint" role="status" aria-live="polite">
+              {describeNote || 'Writes the alt text and the detailed description. Works best with a larger model.'}
+            </span>
           </div>
           <label htmlFor={`cap-${pid}`}>Caption (optional, visible)</label>
           <input id={`cap-${pid}`} value={f.caption} onChange={(e) => onPatch({ caption: e.target.value })} />

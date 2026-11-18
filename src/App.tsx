@@ -2,8 +2,8 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { Box, Figure, ModelInfo, Page, PageStatus, Settings } from './types.ts';
 import { PROVIDERS, asProvider, listModels, pickModel } from './lib/model.ts';
 import { ACCEPT, loadFile } from './lib/images.ts';
-import { convertPage, redrawFigure, rereadRegion } from './lib/pipeline.ts';
-import { buildDocument, downloadHtml, looksLikeFileName } from './lib/exportHtml.ts';
+import { convertPage, describeFigure, redrawFigure, rereadRegion } from './lib/pipeline.ts';
+import { buildDocument, downloadHtml, looksLikeFileName, type ExportLook } from './lib/exportHtml.ts';
 import {
   PROJECT_EXT,
   afterFailedConversion,
@@ -28,6 +28,7 @@ import { ExportPanel } from './components/ExportPanel.tsx';
 /* ---------------- settings ---------------- */
 
 const SETTINGS_KEY = 'ink2web-lite:settings';
+const LOOK_KEY = 'ink2web-lite:export-look';
 const DEFAULTS: Settings = {
   provider: 'ollama',
   lastModels: {},
@@ -38,6 +39,7 @@ const DEFAULTS: Settings = {
   locateFigures: true,
   numCtx: 8192,
   promptSet: 'everyday',
+  describeFigures: true,
 };
 
 function loadSettings(): Settings {
@@ -48,6 +50,7 @@ function loadSettings(): Settings {
       provider: asProvider(s.provider),
       lastModels: s.lastModels && typeof s.lastModels === 'object' ? s.lastModels : {},
       promptSet: asBuiltinId(s.promptSet),
+      describeFigures: s.describeFigures !== false,
     };
   } catch {
     return DEFAULTS;
@@ -124,6 +127,10 @@ export default function App() {
   /** True while the title is the file name (until the user types their own). */
   const [titleAuto, setTitleAuto] = useState(true);
   const [pageMarkers, setPageMarkers] = useState(true);
+  /** Export look (3.2), remembered in this browser. */
+  const [exportLook, setExportLook] = useState<ExportLook>(() => (localStorage.getItem(LOOK_KEY) === 'classic' ? 'classic' : 'cards'));
+  useEffect(() => localStorage.setItem(LOOK_KEY, exportLook), [exportLook]);
+  const [linkSource, setLinkSource] = useState(false);
   /** Saved transcription prompts (Advanced settings, 2.1.1), kept in this browser. */
   const [promptLib, setPromptLib] = useState<PromptLibrary>(loadLibrary);
   /**
@@ -481,6 +488,16 @@ export default function App() {
     setRereading((n) => n + 1);
     return redrawFigure(page, fig, s, thinking, signal).finally(() => setRereading((n) => n - 1));
   }, []);
+  /** Asks the model for a figure's title and detailed description (3.2). Changes nothing by itself. */
+  const onDescribe = useCallback((page: Page, fig: Figure, signal: AbortSignal) => {
+    const s = settingsRef.current;
+    if (!s.model) return Promise.reject(new Error('Choose a model first.'));
+    if (runningRef.current) return Promise.reject(new Error('Wait for the conversion to finish, then try again.'));
+    const thinking = modelsRef.current.find((m) => m.name === s.model)?.thinking ?? false;
+    setRereading((n) => n + 1);
+    return describeFigure(page.image, page.source, fig, s, thinking, signal).finally(() => setRereading((n) => n - 1));
+  }, []);
+
   const onMove = useCallback((id: string, dir: -1 | 1) => dispatch({ type: 'move', id, dir }), []);
   const onRemove = useCallback((id: string) => {
     const all = pagesRef.current;
@@ -529,7 +546,17 @@ export default function App() {
   }, [current?.id]);
 
   const exportHtml = () => {
-    downloadHtml(buildDocument(done, { title, titleFromFileName: titleAuto, lang: 'en', pageMarkers }), title);
+    downloadHtml(
+      buildDocument(done, {
+        title,
+        titleFromFileName: titleAuto,
+        lang: 'en',
+        pageMarkers,
+        look: exportLook,
+        sourceFile: linkSource && sourceFile ? sourceFile : undefined,
+      }),
+      title,
+    );
     setStatus(`Downloaded ${done.length} page${done.length > 1 ? 's' : ''}.`);
     setExportOpen(false);
   };
@@ -539,6 +566,12 @@ export default function App() {
     setCurrentId(pageId);
     if (figure !== undefined) setFocusFigure({ pageId, id: figure, n: Date.now() });
   };
+
+  /** The original file (a PDF or image), named by the first page (3.2: linked from the export). */
+  const sourceFile = (() => {
+    const name = pages[0]?.label.replace(/, page \d+$/, '') ?? '';
+    return /\.(pdf|png|jpe?g|webp|gif|bmp)$/i.test(name) ? name : null;
+  })();
 
   const offerDone = offer ? offer.pages.filter((p) => p.status === 'done').length : 0;
 
@@ -734,6 +767,7 @@ export default function App() {
               onGo={onGo}
               onReread={onReread}
               onRedraw={onRedraw}
+              onDescribe={onDescribe}
             />
           ) : (
             <section className="welcome" aria-labelledby="welcome-h">
@@ -813,6 +847,11 @@ export default function App() {
           titleFromHeading={useHeading}
           pageMarkers={pageMarkers}
           onPageMarkers={setPageMarkers}
+          look={exportLook}
+          onLook={setExportLook}
+          sourceFile={sourceFile}
+          linkSource={linkSource}
+          onLinkSource={setLinkSource}
           onDownload={exportHtml}
           onGoTo={goTo}
         />

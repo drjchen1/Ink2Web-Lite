@@ -31,6 +31,11 @@ export interface Figure {
   box: Box;
   /** Alt text (required for WCAG 1.1.1). Seeded from the model's description. */
   alt: string;
+  /**
+   * A longer description (3.2): a few sentences, math in $…$, shown under the figure in a
+   * collapsed "Detailed description". Written by the larger-model figure pass or by hand.
+   */
+  description?: string;
   /** Optional visible caption. */
   caption: string;
   /** PNG/JPEG data URL of the cropped region (regenerated when the box changes). */
@@ -113,6 +118,11 @@ export interface Settings {
    * prompt from Advanced settings takes precedence while it is in use.
    */
   promptSet: BuiltinPromptId;
+  /**
+   * With the Larger models prompt (3.2): after a page converts, ask the model for each
+   * figure's short title (the alt text) and detailed description. One request per figure.
+   */
+  describeFigures: boolean;
 }
 
 export interface ModelInfo {
