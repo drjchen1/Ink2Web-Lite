@@ -14,7 +14,7 @@ Ink2Web Lite is an **assistant, not a one-click converter**: the model does a fi
 
 **New in 3.2:** a **Page cards** export look, and, with larger models, a short title and a **detailed description** for every figure. See [What's new](#whats-new).
 
-Version 3.2.0. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version 3.2.1. For step-by-step usage, see **[HELP.md](HELP.md)**.
 
 ---
 
@@ -46,6 +46,13 @@ Run `npm test` after changes, and compare a few pages you know well before and a
 ---
 
 ## What's new
+
+### 3.2.1
+- **Math in the Page cards caption bar.** A figure's title now shows its math rendered (for example $x = \frac{\pi}{2}$, not "x=pi/2"). The figure pass keeps the model's title with its math in `$…$`; the alt text is still its plain-words form, since that is what a screen reader says. If you rewrite the alt text, the caption bar shows your alt text instead. Alt text written with `$…$` math also renders there.
+- **Captions render math** (`$…$`) in both looks.
+- **Better plain words in alt text:** fractions and grouped exponents keep their meaning (`\frac{\pi}{2}` → "pi/2", `e^{2x}` → "e^(2x)", `\frac{x+1}{2}` → "(x+1)/2"); before, a figure-pass title could come out as "fracpi2" or "e^2x".
+- With the figure pass on, a drawing found only by the detector no longer gets a one-sentence description first that the pass then replaces (one model request less per such figure).
+- Figures converted with 3.2.0 keep their plain titles: click **Describe with the model** in the figure panel (or type a caption with `$…$`) to get the math back.
 
 ### 3.2.0
 - **A new export look: Page cards.** Under **Export › Look**, choose **Page cards** (now the default) or **Classic**. Each page of your notes sits on its own card with a "Page 1 of 3" badge; the title and an optional link to the original PDF head the first card; every figure has a caption bar. Printing puts one card on each letter-size sheet. Equations on their own line can be reached with Tab.
@@ -314,6 +321,7 @@ src/
     PageView.tsx        one page: original (with figure / re-read tools), document, in-place editing
     PageList.tsx        the page list: thumbnails, status, things to check
     FigurePanel.tsx     one figure's alt text, caption, layout, and crop actions (opens in place)
+    RedrawSection.tsx   Redraw from the math, inside the figure panel
     ExportPanel.tsx     export checklist and Download
     Dialog.tsx          modal dialog (settings, export)
     BlockEditor.tsx     the in-place editor for one block
@@ -337,6 +345,8 @@ src/
     exportHtml.ts       builds the downloadable HTML document (Classic and Page cards looks)
     describe.ts         figure titles and detailed descriptions (larger models)
     figureRows.ts       figures side by side (rows)
+    figureRedraw.ts     redrawn figures in the app and the export (cached SVG, unique ids)
+    redraw/             the redraw engine: specs, sampling, facts, alt text, SVG (docs/REDRAW.md)
     storage.ts          autosave (IndexedDB) and project files
     images.ts           PDF/image loading, contrast boost, cropping
     mathjax.ts          MathJax for the in-app preview

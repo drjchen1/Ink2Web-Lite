@@ -151,7 +151,7 @@ export const BUILTIN_PROMPTS: Record<BuiltinPromptId, BuiltinPrompt> = {
   everyday: {
     id: 'everyday',
     label: 'Everyday hardware',
-    hint: 'Short and concrete, for small models on an ordinary laptop (qwen3-vl:4b-instruct, qwen2.5vl:3b). The default.',
+    hint: 'Short and concrete, for small models on an ordinary laptop (qwen3.5:4b-mlx, qwen3-vl:4b-instruct, qwen2.5vl:3b). The default.',
     text: TRANSCRIBE_USER,
   },
   large: {

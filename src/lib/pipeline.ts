@@ -3,7 +3,7 @@ import type { ChatMessage } from './ollama.ts';
 import { chat, endpoint } from './model.ts';
 import { REDRAW_SCHEMA, REDRAW_SYSTEM, notesAround, redrawPrompt } from './redraw/prompt.ts';
 import { specConversation, type RedrawOutcome } from './redraw/conversation.ts';
-import { DESCRIBE_SCHEMA, DESCRIBE_SYSTEM, describePrompt, parseDescription } from './describe.ts';
+import { DESCRIBE_SCHEMA, DESCRIBE_SYSTEM, describePrompt, describedPatch, parseDescription, type FigureDescription } from './describe.ts';
 
 export type { RedrawOutcome };
 import { cropBase64, cropFigure, modelImage, pageLayout, regionImage, snapToInk, squareImage } from './images.ts';
@@ -129,22 +129,30 @@ export async function convertPage(
   for (const d of drafts) if (!d.placed && d.box !== FALLBACK_BOX) d.box = await snapToInk(page.image, d.box);
   source = removeMarkers(source, dropped);
 
-  let nextId = descriptions.length + 1;
-  for (const j of extra) {
-    let alt = '';
+  // Larger models (3.2): every figure gets the full figure pass below, so a drawing the
+  // detector found waits for it instead of first getting a one-sentence description.
+  const describePass = settings.promptSet === 'large' && settings.describeFigures;
+  /** One sentence for a drawing the model didn't mention ('' if the model fails). */
+  const shortAlt = async (box: Box): Promise<string> => {
     try {
-      alt = (
+      return (
         await chat({
           ...base,
           options: { temperature: 0, num_ctx: 4096, num_predict: 120 },
-          messages: [{ role: 'user', content: DESCRIBE_USER, images: [await cropBase64(page.image, regions[j])] }],
+          messages: [{ role: 'user', content: DESCRIBE_USER, images: [await cropBase64(page.image, box)] }],
         })
       )
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .trim();
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;
+      return '';
     }
+  };
+
+  let nextId = descriptions.length + 1;
+  for (const j of extra) {
+    const alt = describePass ? '' : await shortAlt(regions[j]);
     drafts.push({ id: nextId++, box: regions[j], alt, needsReview: true, autoDetected: true, placed: true });
   }
 
@@ -180,17 +188,18 @@ export async function convertPage(
     const widths = fitWidths(members.map((f) => f.width));
     members.forEach((f, i) => Object.assign(f, { width: widths[i], wrap: false, besideLines: 0, align: 'center' as const }));
   }
-  // Larger models (3.2): a short title (the alt text) and a detailed description per figure.
-  if (settings.promptSet === 'large' && settings.describeFigures) {
+  // Larger models (3.2): a short title (its plain form is the alt text) and a detailed description per figure.
+  if (describePass) {
     for (const f of figures) {
       try {
         const d = await describeFigure(page.image, numbered, f, settings, thinking, signal);
-        if (d?.title) f.alt = d.title;
-        if (d?.description) f.description = d.description;
+        if (d) Object.assign(f, describedPatch(d));
       } catch (e) {
         if ((e as Error).name === 'AbortError') throw e;
         // Keep the transcription's description; the user can ask again from the figure panel.
       }
+      // A detected drawing the pass couldn't describe still gets a sentence.
+      if (!f.alt.trim()) f.alt = await shortAlt(f.box);
     }
   }
   return { source: numbered, figures: figures.sort((a, b) => a.id - b.id) };
@@ -287,7 +296,7 @@ export async function describeFigure(
   settings: Settings,
   thinking: boolean,
   signal: AbortSignal,
-): Promise<{ title: string; description: string } | null> {
+): Promise<FigureDescription | null> {
   const answer = await chat({
     ...endpoint(settings),
     model: settings.model,

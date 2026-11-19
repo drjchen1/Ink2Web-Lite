@@ -343,6 +343,15 @@ const FIG_RE = /^\s*\[\[\s*FIGURE\s+(\d+)\s*\]\]\s*$/i;
 const FIGROW_RE = /^\s*\[\[FIGROW((?:\s+\d+)+)\s*\]\]\s*$/;
 const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
+/**
+ * One line of text with inline marks and $…$ math (3.2.1), without a surrounding <p>:
+ * figure titles and captions. Line breaks become spaces; display math is shown inline.
+ */
+export function inlineMarkdown(md: string): string {
+  const { text, math } = protectMath(md.replace(/\s*\n\s*/g, ' ').trim());
+  return restoreMath(inline(text), math.map((m) => ({ ...m, display: false })));
+}
+
 export function markdownToHtml(md: string, opts: RenderOptions): string {
   const ctx = opts.ctx ?? { lastHeading: 1 };
   const { text, math } = protectMath(composeNotes(md.replace(/\r\n?/g, '\n')));

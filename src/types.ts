@@ -36,7 +36,13 @@ export interface Figure {
    * collapsed "Detailed description". Written by the larger-model figure pass or by hand.
    */
   description?: string;
-  /** Optional visible caption. */
+  /**
+   * The short title from the figure pass (3.2.1), math in $…$. Its plain-words form is
+   * the alt text; the title itself is shown, math rendered, in the Page cards caption bar.
+   * Ignored once the alt text no longer matches it (the user rewrote the alt text).
+   */
+  title?: string;
+  /** Optional visible caption, math in $…$. */
   caption: string;
   /** PNG/JPEG data URL of the cropped region (regenerated when the box changes). */
   src: string;

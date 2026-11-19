@@ -1,5 +1,5 @@
 import type { Figure, Page } from '../types.ts';
-import { CLEAR_MARK, INK_COLORS, escapeHtml, markdownToHtml, type RenderContext } from './markdown.ts';
+import { CLEAR_MARK, INK_COLORS, escapeHtml, inlineMarkdown, markdownToHtml, type RenderContext } from './markdown.ts';
 import { MARKER_LINE, sourceUnits } from './transcript.ts';
 import { placeSvg, redrawState, shownAs } from './figureRedraw.ts';
 import { figureRows, rowMembers } from './figureRows.ts';
@@ -12,7 +12,11 @@ const GREEK = 'alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta
 export function plainMath(text: string): string {
   let t = text.replace(/\$+/g, '');
   t = t.replace(/\\(?:color|textcolor)\s*\{[^{}]*\}/g, '');
-  for (let i = 0; i < 3; i++) t = t.replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '$1/$2');
+  // A numerator or denominator of more than one symbol keeps its grouping: (x + 1)/2.
+  const part = (p: string) => (/^\s*(\d+(\.\d+)?|[A-Za-z]|\\[a-zA-Z]+)\s*$/.test(p) ? p.trim() : `(${p.trim()})`);
+  for (let i = 0; i < 3; i++) t = t.replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_, a: string, b: string) => `${part(a)}/${part(b)}`);
+  // A superscript of more than one character keeps its grouping: e^{2x} -> e^(2x), not e^2x.
+  t = t.replace(/\^\s*\{([^{}]{2,})\}/g, '^($1)');
   t = t
     .replace(/\\sqrt\s*\{([^{}]*)\}/g, 'square root of $1')
     .replace(/\\(left|right|,|;|!|quad|qquad)/g, ' ')
@@ -76,12 +80,6 @@ figure.fig .fig-desc-body{font-size:.95rem;line-height:1.55;margin-top:.35rem}
 figure.fig .fig-desc-body p{margin:0 0 .5rem}
 `;
 
-/**
- * One figure. Shown as the cropped image, the redraw (2.2: an inline SVG whose
- * <title>/<desc> carry alt text computed from the math), or both (the redraw, then the
- * original sketch in a collapsed "Original sketch" section). A redraw whose spec has
- * errors falls back to the image.
- */
 /** The look of the exported document (3.2): one column of text, or page cards. */
 export type ExportLook = 'classic' | 'cards';
 
@@ -93,6 +91,33 @@ export function descriptionHtml(description: string | undefined): string {
   return `<details class="fig-desc"><summary>Detailed description</summary><div class="fig-desc-body">${body}</div></details>`;
 }
 
+/** True when text has $…$ math and every LaTeX command is inside it, so it renders as written. */
+export const rendersAsWritten = (t: string) =>
+  /\$[^$]+\$/.test(t) && (t.match(/\$/g) ?? []).length % 2 === 0 && !/\\[a-zA-Z]/.test(t.replace(/\$[^$]*\$/g, ''));
+
+/** Alt text compared loosely: spacing, case of the first letter, and a final period don't matter. */
+const looseAlt = (t: string) => plainMath(t).replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim().toLowerCase();
+
+/**
+ * The title shown in a figure's caption bar (Page cards), as HTML with its math rendered
+ * (3.2.1): the figure pass's title while the alt text is still its plain form, else
+ * the alt text itself (its $…$ math rendered; plain words otherwise).
+ */
+export function figureTitleHtml(fig: Pick<Figure, 'alt' | 'title'>): string {
+  const t = fig.title?.trim();
+  const md = t && rendersAsWritten(t) && looseAlt(t) === looseAlt(fig.alt) ? t : rendersAsWritten(fig.alt) ? fig.alt.trim() : '';
+  if (!md) return escapeHtml(polishAlt(fig.alt));
+  // Same finish as polishAlt: a capital first letter (outside math) and a final period.
+  const cap = md.replace(/^[a-z]/, (c) => c.toUpperCase());
+  return inlineMarkdown(/[.!?]$/.test(cap) ? cap : `${cap}.`);
+}
+
+/**
+ * One figure. Shown as the cropped image, the redraw (2.2: an inline SVG whose
+ * <title>/<desc> carry alt text computed from the math), or both (the redraw, then the
+ * original sketch in a collapsed "Original sketch" section). A redraw whose spec has
+ * errors falls back to the image.
+ */
 export function figureHtml(fig: Figure | undefined, pageNo: number, inRow = false, look: ExportLook = 'classic'): string {
   if (!fig) return '';
   const alt = escapeHtml(polishAlt(fig.alt));
@@ -113,16 +138,17 @@ export function figureHtml(fig: Figure | undefined, pageNo: number, inRow = fals
   }
   // Caption (3.2): the visible caption, and the detailed description when there is one.
   // The cards look always shows a title; when it only repeats what a screen reader
-  // already heard (the alt text), it is hidden from screen readers.
+  // already heard (the alt text), it is hidden from screen readers. Captions and titles
+  // render their $…$ math (3.2.1).
   const desc = descriptionHtml(fig.description);
   const cap = fig.caption.trim();
   let caption = '';
   if (look === 'cards') {
-    const heard = show !== 'image' && state.kind === 'ready' ? state.result.alt.short : polishAlt(fig.alt);
-    const title = cap || heard;
+    const redrawn = show !== 'image' && state.kind === 'ready';
+    const title = cap ? inlineMarkdown(cap) : redrawn ? escapeHtml(state.result.alt.short) : figureTitleHtml(fig);
     const hide = !cap ? ' aria-hidden="true"' : '';
-    caption = `<figcaption><div class="fig-title"${hide}><span class="fig-label">Figure:</span> ${escapeHtml(title)}</div>${desc}</figcaption>`;
-  } else if (cap || desc) caption = `<figcaption>${cap ? escapeHtml(cap) : ''}${desc}</figcaption>`;
+    caption = `<figcaption><div class="fig-title"${hide}><span class="fig-label">Figure:</span> ${title}</div>${desc}</figcaption>`;
+  } else if (cap || desc) caption = `<figcaption>${cap ? inlineMarkdown(cap) : ''}${desc}</figcaption>`;
   return `<figure id="${id}" class="fig align-${align}${wrap}" style="--w:${width}%">${body}${caption}</figure>`;
 }
 

@@ -6,6 +6,7 @@ import { Preview } from './Preview.tsx';
 import { RedrawSection } from './RedrawSection.tsx';
 import { redrawState } from '../lib/figureRedraw.ts';
 import type { RedrawOutcome } from '../lib/redraw/conversation.ts';
+import { describedPatch, type FigureDescription } from '../lib/describe.ts';
 
 interface Props {
   fig: Figure;
@@ -34,7 +35,7 @@ interface Props {
   /** Why the model can't be asked now ('' when it can). */
   redrawBlocked: string;
   /** Asks the model for a short title (alt text) and a detailed description (3.2). */
-  onDescribe: (signal: AbortSignal) => Promise<{ title: string; description: string } | null>;
+  onDescribe: (signal: AbortSignal) => Promise<FigureDescription | null>;
   onClose: () => void;
 }
 
@@ -67,7 +68,7 @@ export function FigurePanel(props: Props) {
       if (ac.signal.aborted) return;
       if (!d) setDescribeNote('The model didn’t give a usable answer. Try again, or write them yourself.');
       else {
-        onPatch({ ...(d.title ? { alt: d.title } : {}), ...(d.description ? { description: d.description } : {}) });
+        onPatch(describedPatch(d));
         setDescribeNote('Done. Check both against the drawing.');
       }
     } catch (e) {
@@ -182,7 +183,7 @@ export function FigurePanel(props: Props) {
               {describeNote || 'Writes the alt text and the detailed description. Works best with a larger model.'}
             </span>
           </div>
-          <label htmlFor={`cap-${pid}`}>Caption (optional, visible)</label>
+          <label htmlFor={`cap-${pid}`}>Caption (optional, visible; math in $…$)</label>
           <input id={`cap-${pid}`} value={f.caption} onChange={(e) => onPatch({ caption: e.target.value })} />
         </div>
 

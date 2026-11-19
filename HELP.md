@@ -1,6 +1,6 @@
 # Ink2Web Lite: User Guide
 
-This guide covers everyday use of Ink2Web Lite 3.2. For installation, see [README.md](README.md).
+This guide covers everyday use of Ink2Web Lite 3.2.1. For installation, see [README.md](README.md).
 
 > **Your work is saved as you go**, in this browser on this computer. To keep a copy you can move or back up, use **Save** in the top bar. See [Saving your work](#8-saving-your-work).
 
@@ -98,7 +98,7 @@ If the chosen prompt doesn't fit the selected model's size, a hint suggests the 
 
 A custom prompt (see [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt)) takes the place of this choice while it's in use.
 
-**Figure titles and descriptions (3.2).** With **Larger models** chosen, **also write a short title and a detailed description for each figure** is on by default. After a page converts, the model looks at each figure again, with the notes around it, and writes a short title (it becomes the alt text) and a few sentences describing the drawing. It's one more request per figure, so a page with figures takes a little longer. Untick it to skip the pass; you can still ask for one figure at a time from its panel.
+**Figure titles and descriptions (3.2).** With **Larger models** chosen, **also write a short title and a detailed description for each figure** is on by default. After a page converts, the model looks at each figure again, with the notes around it, and writes a short title and a few sentences describing the drawing. The title, in plain words, becomes the alt text; with its math rendered, it is the title in the Page cards caption bar. It's one more request per figure, so a page with figures takes a little longer. Untick it to skip the pass; you can still ask for one figure at a time from its panel.
 
 ### Image detail
 
@@ -344,7 +344,7 @@ While a figure's panel is open, its box on the original is selected (blue) so yo
 
 Every figure needs alt text, the description a screen reader reads aloud. The app writes a first draft, but **you know what the drawing is meant to show**, so please review it. Good alt text says what kind of drawing it is, what matters for the lesson, and the labels a student needs, in plain words. It describes **the drawing only**; sentences and formulas written next to it belong in the notes.
 
-The **Caption** is optional, visible text shown under the figure.
+The **Caption** is optional, visible text shown under the figure; math in `$…$` is rendered. In the **Page cards** export, every figure has a caption bar: it shows your caption if there is one, otherwise the figure's title (the alt text, with its math rendered when the model's figure pass wrote it).
 
 ### Detailed description (3.2)
 

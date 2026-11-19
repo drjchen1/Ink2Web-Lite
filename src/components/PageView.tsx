@@ -14,6 +14,7 @@ import { BlockEditor } from './BlockEditor.tsx';
 import { MarkupToolbar } from './MarkupToolbar.tsx';
 import { FigurePanel } from './FigurePanel.tsx';
 import type { RedrawOutcome } from '../lib/redraw/conversation.ts';
+import type { FigureDescription } from '../lib/describe.ts';
 
 export const STATUS: Record<Page['status'], string> = {
   idle: 'Not converted',
@@ -53,7 +54,7 @@ interface Props {
   /** Asks the model for a figure's redraw spec (2.2); resolves with a proposal. */
   onRedraw: (page: Page, fig: Figure, signal: AbortSignal) => Promise<RedrawOutcome>;
   /** Asks the model for a figure's title and detailed description (3.2). */
-  onDescribe: (page: Page, fig: Figure, signal: AbortSignal) => Promise<{ title: string; description: string } | null>;
+  onDescribe: (page: Page, fig: Figure, signal: AbortSignal) => Promise<FigureDescription | null>;
 }
 
 /** The text block open for editing in place. */
@@ -327,9 +328,12 @@ export const PageView = memo(function PageView(props: Props) {
 
   const removeFigure = (id: number) => {
     const p = latest.current;
+    // The figure after it in a row no longer has its partner; don't let it join another one.
+    const row = figureRows(p.source, p.figures).find((r) => r.includes(id));
+    const after = row && row.indexOf(id) + 1 < row.length ? row[row.indexOf(id) + 1] : null;
     onUpdate(page.id, {
-      figures: p.figures.filter((f) => f.id !== id),
-      source: p.source.replace(new RegExp(`\\n*\\[\\[\\s*FIGURE\\s+${id}\\s*\\]\\]\\n*`, 'gi'), '\n\n'),
+      figures: p.figures.filter((f) => f.id !== id).map((f) => (f.id === after ? { ...f, besidePrevious: false } : f)),
+      source: p.source.replace(new RegExp(`\\n*\\[\\[\\s*FIGURE\\s+${id}\\s*\\]\\]\\n*`, 'gi'), '\n\n').trim(),
     });
     if (active === id) setActive(null);
     setNote(`Figure ${id} deleted.`);
