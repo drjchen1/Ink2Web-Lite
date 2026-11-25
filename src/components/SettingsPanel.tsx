@@ -196,6 +196,24 @@ export function SettingsPanel({
           />{' '}
           Ask the model where figures are when its list and the detected drawings disagree
         </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.autoRedraw}
+            disabled={disabled}
+            onChange={(e) => onChange({ autoRedraw: e.target.checked })}
+          />{' '}
+          Redraw mathematical graphs as clean SVG when their equation is in the notes
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.splitDensePages !== false}
+            disabled={disabled}
+            onChange={(e) => onChange({ splitDensePages: e.target.checked })}
+          />{' '}
+          Split dense small-model pages or two-column handouts into bands before reading
+        </label>
       </div>
 
       <details>

@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Box, Figure, Page } from '../types.ts';
-import { pageHtml, wrapEndLines } from '../lib/exportHtml.ts';
-import { blockText, pageIssues, commitBlock, moveAltToNotes, pageBlocks, splitBlocks, type Block } from '../lib/editing.ts';
+import { pageHtml, wrapEndLines, type ExportLook } from '../lib/exportHtml.ts';
+import { blockText, pageIssues, commitBlock, moveAltToNotes, pageBlocks, shortcutMark, splitBlocks, type Block } from '../lib/editing.ts';
 import { latexWarnings } from '../lib/markdown.ts';
 import { cropFigure, pageLayout, snapToInk } from '../lib/images.ts';
 import { defaultLayout, overlapRatio } from '../lib/layout.ts';
@@ -11,7 +11,7 @@ import { figureRows, fitWidths, placeAfter, previousFigure } from '../lib/figure
 import { CropCanvas } from './CropCanvas.tsx';
 import { Preview } from './Preview.tsx';
 import { BlockEditor } from './BlockEditor.tsx';
-import { MarkupToolbar } from './MarkupToolbar.tsx';
+import { MarkupToolbar, applyMarkToTextarea } from './MarkupToolbar.tsx';
 import { FigurePanel } from './FigurePanel.tsx';
 import type { RedrawOutcome } from '../lib/redraw/conversation.ts';
 import type { FigureDescription } from '../lib/describe.ts';
@@ -40,6 +40,7 @@ interface Props {
   busy: 'converting' | 'rereading' | null;
   /** Open this figure's panel (from the export checklist). `n` changes on every request. */
   focusFigure: { id: number; n: number } | null;
+  look?: ExportLook;
   onUpdate: (id: string, patch: Partial<Page>) => void;
   /** Converts this page only (now, or after the page being converted). */
   onConvert: (id: string) => void;
@@ -87,7 +88,7 @@ function useDebounced<T>(value: T, ms: number): T {
  * document on the right. Text blocks and figures open in place when clicked.
  */
 export const PageView = memo(function PageView(props: Props) {
-  const { page, index, count, liveText, canConvert, busy, focusFigure, onUpdate, onConvert, onUnqueue, onRemove, onMove, onGo, onReread, onRedraw, onDescribe } =
+  const { page, index, count, liveText, canConvert, busy, focusFigure, look = 'classic', onUpdate, onConvert, onUnqueue, onRemove, onMove, onGo, onReread, onRedraw, onDescribe } =
     props;
   const pageNo = index + 1;
   const [tab, setTab] = useState<'preview' | 'edit'>('preview');
@@ -115,11 +116,11 @@ export const PageView = memo(function PageView(props: Props) {
   editingRef.current = editing;
 
   const source = useDebounced(page.source, 250);
-  const pb = useMemo(() => pageBlocks({ source, figures: page.figures }, pageNo, hintId), [page.figures, source, pageNo, hintId]);
+  const pb = useMemo(() => pageBlocks({ source, figures: page.figures }, pageNo, hintId, look), [page.figures, source, pageNo, hintId, look]);
   // Under "Edit source" the preview isn't clickable, so it's rendered exactly like the export.
   const plainHtml = useMemo(
-    () => (tab === 'edit' ? pageHtml({ ...page, source }, pageNo) : ''),
-    [tab, page.figures, source, pageNo],
+    () => (tab === 'edit' ? pageHtml({ ...page, source }, pageNo, undefined, look) : ''),
+    [tab, page.figures, source, pageNo, look],
   );
   const warnings = useMemo(() => latexWarnings(source), [source]);
   const positions = useMemo(() => markerUnitIndex(page.source), [page.source]);
@@ -433,6 +434,7 @@ export const PageView = memo(function PageView(props: Props) {
             : ''
       }
       onClose={closeFigure}
+      look={look}
     />
   );
 
@@ -519,6 +521,7 @@ export const PageView = memo(function PageView(props: Props) {
         onCancel={cancelEdit}
         figures={page.figures}
         pageNo={pageNo}
+        look={look}
       />
       {!reread ? (
         <div className="reread-action">
@@ -713,6 +716,13 @@ export const PageView = memo(function PageView(props: Props) {
                       value={page.source}
                       spellCheck={false}
                       onChange={(e) => onUpdate(page.id, { source: e.target.value })}
+                      onKeyDown={(e) => {
+                        const mk = shortcutMark(e);
+                        if (mk && srcRef.current) {
+                          e.preventDefault();
+                          applyMarkToTextarea(srcRef.current, mk, (v) => onUpdate(page.id, { source: v }));
+                        }
+                      }}
                     />
                   </div>
                   <Preview html={plainHtml} label={`Preview of page ${pageNo}`} />

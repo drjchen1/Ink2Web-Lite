@@ -1,7 +1,7 @@
 import { redrawState } from './figureRedraw.ts';
 import type { Page } from '../types.ts';
 import { latexWarnings, markdownToHtml, type RenderContext } from './markdown.ts';
-import { figureHtml, wrapEndLines } from './exportHtml.ts';
+import { figureHtml, wrapEndLines, type ExportLook } from './exportHtml.ts';
 import { MARKER_LINE, sourceUnits } from './transcript.ts';
 import { ROW_GAP, figureRows } from './figureRows.ts';
 
@@ -92,6 +92,7 @@ export function pageBlocks(
   page: Pick<Page, 'source' | 'figures'>,
   pageNo: number,
   hintId = '',
+  look: ExportLook = 'classic',
 ): { blocks: Block[]; html: string[]; tail: string } {
   const blocks = splitBlocks(page.source, wrapEndLines(page.source, page.figures));
   const ctx: RenderContext = { lastHeading: 1 };
@@ -100,10 +101,21 @@ export function pageBlocks(
   const rowOf = new Map<number, number[]>();
   for (const r of figureRows(page.source, page.figures)) for (const id of r) rowOf.set(id, r);
   const widthOf = (id: number) => Math.min(100, Math.max(15, Math.round(page.figures.find((f) => f.id === id)?.width ?? 100)));
-  const figure = (id: number) => figureHtml(page.figures.find((f) => f.id === id), pageNo, rowOf.has(id));
+  const figure = (id: number) => figureHtml(page.figures.find((f) => f.id === id), pageNo, rowOf.has(id), look);
+  const renderOpts = {
+    ctx,
+    figure,
+    noteStyle: look === 'cards' ? ('list' as const) : ('prose' as const),
+    notebox: look === 'cards',
+  };
   const described = hintId ? ` aria-describedby="${hintId}"` : '';
   const html = blocks.map((b, i) => {
-    const inner = markdownToHtml(blockText(page.source, b), { ctx, figure });
+    const figObj = b.fig !== undefined ? page.figures.find((f) => f.id === b.fig) : undefined;
+    const isSideCard = look === 'cards' && figObj && figObj.wrap && figObj.align !== 'center' && !rowOf.has(figObj.id);
+    const localOpts = isSideCard
+      ? { ...renderOpts, figure: () => figureHtml({ ...figObj, wrap: false, width: 100 }, pageNo, false, 'cards') }
+      : renderOpts;
+    const inner = markdownToHtml(blockText(page.source, b), localOpts);
     const row = b.fig !== undefined ? rowOf.get(b.fig) : undefined;
     if (row && b.fig !== undefined) {
       const k = row.indexOf(b.fig);
@@ -114,7 +126,7 @@ export function pageBlocks(
       const start = k ? '' : '<div class="blk-row-start"></div>';
       return `${start}<div class="blk blk-fig blk-row" data-b="${i}" tabindex="0"${described} style="${style}">${inner}</div>`;
     }
-    const kind = b.fig !== undefined ? ' blk-fig' : '';
+    const kind = b.fig !== undefined ? (isSideCard ? ` blk-fig blk-side blk-side-${figObj.align}` : ' blk-fig') : '';
     return `<div class="blk${kind}" data-b="${i}" tabindex="0"${described}>${inner}</div>${b.clear ? '<div class="fig-clear"></div>' : ''}`;
   });
   const tail = page.figures.some((f) => f.wrap) ? '<div class="fig-clear"></div>' : '';
@@ -201,7 +213,17 @@ export function moveAltToNotes(
  * Markup toolbar
  * ------------------------------------------------------------------------------- */
 
-export type Mark = 'math' | 'display' | 'note' | 'box' | 'vdots' | 'underline' | 'heading' | `color:${string}`;
+export type Mark = 'math' | 'display' | 'note' | 'box' | 'callout' | 'columns' | 'vdots' | 'underline' | 'heading' | `color:${string}`;
+
+/** Maps a keyboard shortcut (⌘/Ctrl + M, Shift+M, B, U) to a toolbar mark. */
+export function shortcutMark(e: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }): Mark | null {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return null;
+  const k = e.key.toLowerCase();
+  if (k === 'm') return e.shiftKey ? 'display' : 'math';
+  if (k === 'b') return 'box';
+  if (k === 'u') return 'underline';
+  return null;
+}
 
 /** A text edit: replace [from, to) with `insert`, then select [selStart, selEnd). */
 export interface Edit {
@@ -306,6 +328,28 @@ export function applyMark(text: string, s: number, e: number, mark: Mark): Edit 
     return { from: at, to: at, insert, selStart: at + insert.length, selEnd: at + insert.length };
   }
 
+  if (mark === 'callout') {
+    const open = '[[box: ]]\n';
+    const close = '\n[[/box]]';
+    const body = sel.trim();
+    if (!body) {
+      const insert = `${open}${close}`;
+      return { from: s, to: e, insert, selStart: s + '[[box: '.length, selEnd: s + '[[box: '.length };
+    }
+    return wrap(s, e, body, open, close);
+  }
+
+  if (mark === 'columns') {
+    const body = sel.trim();
+    const open = '[[columns]]\n';
+    const close = '\n[[next]]\n\n[[/columns]]';
+    if (!body) {
+      const insert = `${open}${close}`;
+      return { from: s, to: e, insert, selStart: s + open.length, selEnd: s + open.length };
+    }
+    return wrap(s, e, body, open, close);
+  }
+
   // heading: toggle "## " at the start of the line
   const ls = lineStart(text, s);
   const m = text.slice(ls).match(/^#{1,6}\s+/);
@@ -323,10 +367,22 @@ export function applyEdit(text: string, ed: Edit): string {
  * ------------------------------------------------------------------------------- */
 
 export interface PageIssue {
-  kind: 'error' | 'alt-missing' | 'alt-check' | 'figure-check' | 'redraw-error' | 'latex';
+  kind: 'error' | 'alt-missing' | 'alt-check' | 'figure-check' | 'redraw-error' | 'redraw-check' | 'illegible' | 'markup' | 'latex';
   /** The figure it concerns, if any. */
   figure?: number;
   text: string;
+}
+
+const VALID_TAG = /^\[\[\s*(?:FIGURE\s+\d+|CLEAR|FIGROW(?:\s+\d+)+|note(?:\s+(?:red|green|orange|purple|blue))?\s*:[\s\S]*|where\s*:[\s\S]*|scratch\s*:[\s\S]*|(?:red|green|orange|purple|blue)\s*:[\s\S]*|box(?:\s*:[^\]]*)?|\/box|columns|next|\/columns)\s*\]\]$/i;
+
+/** Returns true when `source` contains unrecognized `[[...]]` markup or an unclosed `[[` tag outside math/code. */
+export function hasBrokenMarkup(source: string): boolean {
+  const plain = source
+    .replace(/\$\$[\s\S]+?\$\$/g, ' ')
+    .replace(/\$[^$\n]+\$/g, ' ')
+    .replace(/`[^`]+`/g, ' ');
+  const stripped = plain.replace(/\[\[[\s\S]*?\]\]/g, (tag) => (VALID_TAG.test(tag) ? ' ' : tag));
+  return /\[\[/.test(stripped);
 }
 
 /** What still needs a look on a converted page. Empty when there's nothing to check. */
@@ -338,6 +394,8 @@ export function pageIssues(page: Pick<Page, 'source' | 'figures' | 'error'>): Pa
     const state = wanted ? redrawState(f) : null;
     if (state?.kind === 'broken')
       out.push({ kind: 'redraw-error', figure: f.id, text: `Figure ${f.id}: the redraw has errors, so the image is shown.` });
+    if (state?.kind === 'ready' && f.redrawCheck)
+      out.push({ kind: 'redraw-check', figure: f.id, text: `Figure ${f.id}: check that the redrawn curve matches the sketch.` });
     // Shown only as a redraw, the figure's alt text is computed from the math.
     if (f.redraw?.show === 'redrawn' && state?.kind === 'ready') {
       if (f.needsReview) out.push({ kind: 'figure-check', figure: f.id, text: `Figure ${f.id}: check the crop and position.` });
@@ -347,6 +405,9 @@ export function pageIssues(page: Pick<Page, 'source' | 'figures' | 'error'>): Pa
     else if (altTextIssue(f.alt)) out.push({ kind: 'alt-check', figure: f.id, text: `Figure ${f.id}: check the alt text.` });
     if (f.needsReview) out.push({ kind: 'figure-check', figure: f.id, text: `Figure ${f.id}: check the crop and position.` });
   }
+  const illegibles = (page.source.match(/\[\s*illegible\s*\]/gi) ?? []).length;
+  if (illegibles) out.push({ kind: 'illegible', text: `${illegibles} [illegible] spot${illegibles > 1 ? 's' : ''} to check against the original.` });
+  if (hasBrokenMarkup(page.source)) out.push({ kind: 'markup', text: 'Unrecognized [[…]] markup in the text.' });
   const w = latexWarnings(page.source).length;
   if (w) out.push({ kind: 'latex', text: `${w} LaTeX warning${w > 1 ? 's' : ''}.` });
   return out;

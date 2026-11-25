@@ -7,16 +7,23 @@ import { buildDocument, downloadHtml, looksLikeFileName, type ExportLook } from 
 import {
   PROJECT_EXT,
   afterFailedConversion,
+  archiveCurrentSession,
   clearSession,
+  listRecentSessions,
+  loadRecentSession,
   loadSession,
   markWritten,
+  notifyTabSave,
   projectFileName,
   projectFromJson,
   projectToJson,
   resetWritten,
   saveSession,
+  watchTabSaves,
+  type RecentSummary,
   type Session,
 } from './lib/storage.ts';
+import { prerenderOfflineHtml } from './lib/mathjax.ts';
 import { findByText, loadLibrary, startupPrompt, storeLibrary, type PromptLibrary } from './lib/promptLibrary.ts';
 import { BUILTIN_PROMPTS, asBuiltinId, transcribePrompt } from './lib/prompts.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
@@ -29,6 +36,8 @@ import { ExportPanel } from './components/ExportPanel.tsx';
 
 const SETTINGS_KEY = 'ink2web-lite:settings';
 const LOOK_KEY = 'ink2web-lite:export-look';
+const LINK_KEY = 'ink2web-lite:link-source';
+const OFFLINE_KEY = 'ink2web-lite:offline-math';
 const DEFAULTS: Settings = {
   provider: 'ollama',
   lastModels: {},
@@ -40,6 +49,8 @@ const DEFAULTS: Settings = {
   numCtx: 8192,
   promptSet: 'everyday',
   describeFigures: true,
+  autoRedraw: true,
+  splitDensePages: true,
 };
 
 function loadSettings(): Settings {
@@ -51,6 +62,8 @@ function loadSettings(): Settings {
       lastModels: s.lastModels && typeof s.lastModels === 'object' ? s.lastModels : {},
       promptSet: asBuiltinId(s.promptSet),
       describeFigures: s.describeFigures !== false,
+      autoRedraw: s.autoRedraw !== false,
+      splitDensePages: s.splitDensePages !== false,
     };
   } catch {
     return DEFAULTS;
@@ -130,7 +143,11 @@ export default function App() {
   /** Export look (3.2), remembered in this browser. */
   const [exportLook, setExportLook] = useState<ExportLook>(() => (localStorage.getItem(LOOK_KEY) === 'classic' ? 'classic' : 'cards'));
   useEffect(() => localStorage.setItem(LOOK_KEY, exportLook), [exportLook]);
-  const [linkSource, setLinkSource] = useState(false);
+  const [linkSource, setLinkSource] = useState(() => localStorage.getItem(LINK_KEY) !== 'false');
+  useEffect(() => localStorage.setItem(LINK_KEY, String(linkSource)), [linkSource]);
+  const [offlineMath, setOfflineMath] = useState(() => localStorage.getItem(OFFLINE_KEY) === 'true');
+  useEffect(() => localStorage.setItem(OFFLINE_KEY, String(offlineMath)), [offlineMath]);
+  const [exporting, setExporting] = useState(false);
   /** Saved transcription prompts (Advanced settings, 2.1.1), kept in this browser. */
   const [promptLib, setPromptLib] = useState<PromptLibrary>(loadLibrary);
   /**
@@ -148,6 +165,8 @@ export default function App() {
 
   /** A session saved earlier in this browser, waiting for "Restore" or "Start fresh". */
   const [offer, setOffer] = useState<Session | null>(null);
+  const [recent, setRecent] = useState<RecentSummary[]>([]);
+  const [tabConflict, setTabConflict] = useState<number | null>(null);
   /** Autosave runs only once any saved session has been restored or set aside. */
   const [autosaveOn, setAutosaveOn] = useState(false);
   /** "Saved in this browser at 10:42", or why saving isn't possible. */
@@ -202,8 +221,25 @@ export default function App() {
         setSaveFailed(true);
         setSaveNote('This browser can’t save work automatically. Use Save (top bar) to keep a project file.');
       });
+    listRecentSessions()
+      .then((list) => {
+        if (mounted) setRecent(list);
+      })
+      .catch(() => undefined);
+    const stopWatch = watchTabSaves((savedAt) => {
+      if (!mounted) return;
+      if (pagesRef.current.length > 0) {
+        setAutosaveOn(false);
+        setTabConflict(savedAt);
+      } else {
+        loadSession()
+          .then((s) => mounted && s && setOffer(s))
+          .catch(() => undefined);
+      }
+    });
     return () => {
       mounted = false;
+      stopWatch();
     };
   }, []);
 
@@ -217,6 +253,7 @@ export default function App() {
     setTitle(s.title);
     setTitleAuto(s.titleAuto);
     setPageMarkers(s.pageMarkers);
+    setTabConflict(null);
   }, []);
 
   const restore = () => {
@@ -228,15 +265,42 @@ export default function App() {
     setAutosaveOn(true);
   };
 
+  const restoreRecent = async (id: string) => {
+    try {
+      const s = await loadRecentSession(id);
+      if (!s) return;
+      await archiveCurrentSession().catch(() => undefined);
+      applySession(s);
+      markWritten(s.pages.map((p) => p.id));
+      setOffer(null);
+      setAutosaveOn(true);
+      setRecent(await listRecentSessions().catch(() => []));
+      setStatus(`Restored “${s.title || 'Untitled'}” (${s.pages.length} page${s.pages.length > 1 ? 's' : ''}).`);
+    } catch (e) {
+      setStatus(`Couldn’t restore recent session: ${(e as Error).message}`);
+    }
+  };
+
   const startFresh = async () => {
-    if (!window.confirm('Start fresh? The work saved in this browser will be deleted.')) return;
+    if (!window.confirm('Start fresh? The current session moves to Recent and autosave resets.')) return;
     setOffer(null);
     try {
+      await archiveCurrentSession();
       await clearSession();
+      setRecent(await listRecentSessions().catch(() => []));
     } catch {
       /* nothing saved, or storage unavailable */
     }
     setAutosaveOn(true);
+  };
+
+  const reloadFromOtherTab = async () => {
+    const s = await loadSession().catch(() => null);
+    if (!s) return;
+    applySession(s);
+    markWritten(s.pages.map((p) => p.id));
+    setAutosaveOn(true);
+    setStatus(`Reloaded work saved at ${timeOf(s.savedAt)}.`);
   };
 
   useEffect(() => {
@@ -248,6 +312,7 @@ export default function App() {
           setSaveNote('');
         } else {
           const at = await saveSession({ title, titleAuto, pageMarkers }, pages);
+          notifyTabSave(at);
           setSaveNote(`Saved in this browser at ${timeOf(at)}.`);
         }
         setSaveFailed(false);
@@ -285,10 +350,12 @@ export default function App() {
       try {
         const s = projectFromJson(await file.text());
         if (pagesRef.current.length && !window.confirm('Replace the current pages with this project?')) return;
+        if (pagesRef.current.length) await archiveCurrentSession().catch(() => undefined);
         applySession(s);
         resetWritten(); // its images are not in this browser's storage yet
         setOffer(null);
         setAutosaveOn(true);
+        setRecent(await listRecentSessions().catch(() => []));
         setStatus(`Opened ${file.name} (${s.pages.length} page${s.pages.length > 1 ? 's' : ''}).`);
       } catch (e) {
         setStatus(`${file.name}: ${(e as Error).message}`);
@@ -512,15 +579,20 @@ export default function App() {
   const clearAll = () => {
     if (
       pagesRef.current.some((p) => p.status === 'done') &&
-      !window.confirm('Clear all pages? Your converted pages and edits are removed, including the copy saved in this browser.')
+      !window.confirm('Clear all pages? Your converted pages and edits move to Recent and are cleared from the workspace.')
     )
       return;
+    void archiveCurrentSession()
+      .then(() => listRecentSessions())
+      .then((list) => setRecent(list))
+      .catch(() => undefined);
     abortRef.current?.abort();
     pagesRef.current.forEach((p) => URL.revokeObjectURL(p.url));
     dispatch({ type: 'clear' });
     setCurrentId(null);
     setTitle('');
     setTitleAuto(true);
+    setTabConflict(null);
     setStatus('');
   };
 
@@ -545,19 +617,31 @@ export default function App() {
     window.scrollTo({ top: 0 });
   }, [current?.id]);
 
-  const exportHtml = () => {
-    downloadHtml(
-      buildDocument(done, {
-        title,
-        titleFromFileName: titleAuto,
-        lang: 'en',
-        pageMarkers,
-        look: exportLook,
-        sourceFile: linkSource && sourceFile ? sourceFile : undefined,
-      }),
+  const exportHtml = async () => {
+    const rawHtml = buildDocument(done, {
       title,
-    );
-    setStatus(`Downloaded ${done.length} page${done.length > 1 ? 's' : ''}.`);
+      titleFromFileName: titleAuto,
+      lang: 'en',
+      pageMarkers,
+      look: exportLook,
+      sourceFile: linkSource && sourceFile ? sourceFile : undefined,
+    });
+    if (offlineMath) {
+      setExporting(true);
+      try {
+        const offline = await prerenderOfflineHtml(rawHtml);
+        downloadHtml(offline, title);
+        setStatus(`Downloaded offline HTML (${done.length} page${done.length > 1 ? 's' : ''}).`);
+      } catch (e) {
+        downloadHtml(rawHtml, title);
+        setStatus(`Pre-rendering failed (${(e as Error).message}); downloaded standard HTML instead.`);
+      } finally {
+        setExporting(false);
+      }
+    } else {
+      downloadHtml(rawHtml, title);
+      setStatus(`Downloaded ${done.length} page${done.length > 1 ? 's' : ''}.`);
+    }
     setExportOpen(false);
   };
 
@@ -673,6 +757,28 @@ export default function App() {
         </div>
       </header>
 
+      {tabConflict !== null && (
+        <p className="banner warn custom-prompt-banner" role="alert">
+          <span>
+            <strong>Newer edits were saved in another browser tab at {timeOf(tabConflict)}.</strong> Autosave here is paused so tabs don’t
+            overwrite each other.
+          </span>
+          <span className="actions">
+            <button type="button" className="primary" onClick={reloadFromOtherTab}>
+              Reload latest
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTabConflict(null);
+                setAutosaveOn(true);
+              }}
+            >
+              Keep and save this tab
+            </button>
+          </span>
+        </p>
+      )}
       {saveFailed && saveNote && (
         <p className="banner warn" role="alert">
           {saveNote}
@@ -759,6 +865,7 @@ export default function App() {
               canConvert={!!settings.model}
               busy={running ? 'converting' : rereading > 0 ? 'rereading' : null}
               focusFigure={focusFigure?.pageId === current.id ? { id: focusFigure.id, n: focusFigure.n } : null}
+              look={exportLook}
               onUpdate={onUpdate}
               onConvert={convertOne}
               onUnqueue={unqueue}
@@ -814,6 +921,23 @@ export default function App() {
               <p className="status" role="status" aria-live="polite">
                 {loadingFiles || status}
               </p>
+              {recent.length > 0 && (
+                <section className="recent" aria-labelledby="recent-h">
+                  <h2 id="recent-h">Recent sessions in this browser</h2>
+                  <ul className="recent-list">
+                    {recent.map((r) => (
+                      <li key={r.id}>
+                        <button type="button" className="link" onClick={() => restoreRecent(r.id)}>
+                          {r.title || 'Untitled'}
+                        </button>{' '}
+                        <span className="hint">
+                          ({r.pageCount} page{r.pageCount > 1 ? 's' : ''}, {r.doneCount} converted · {dateOf(r.savedAt)})
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
             </section>
           )}
         </main>
@@ -852,6 +976,9 @@ export default function App() {
           sourceFile={sourceFile}
           linkSource={linkSource}
           onLinkSource={setLinkSource}
+          offlineMath={offlineMath}
+          onOfflineMath={setOfflineMath}
+          exporting={exporting}
           onDownload={exportHtml}
           onGoTo={goTo}
         />

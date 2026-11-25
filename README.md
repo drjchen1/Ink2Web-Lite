@@ -1,392 +1,237 @@
 # Ink2Web Lite
 
-Ink2Web Lite turns handwritten math notes (scanned PDFs or photos) into clean, accessible HTML. Equations are rendered with MathJax, and hand-drawn figures are extracted as images with alt text.
+**Ink2Web Lite** turns handwritten math notes (scanned PDFs, tablet exports, or phone photos) into clean, WCAG-accessible HTML with MathJax equations, structured handwriting marks, cropped or mathematically redrawn SVG figures, and computed alt text.
 
-By default everything runs on your own computer. The app uses a vision model running locally in [Ollama](https://ollama.com), so:
+By default, everything runs **locally on your own computer** using a vision model in [Ollama](https://ollama.com):
 
-- 🔒 **Your notes never leave your machine.** There are no cloud uploads.
-- ⚡ **No API keys or subscriptions** are needed.
-- 💻 **It runs on everyday hardware**, including Apple Silicon laptops with 8 GB of RAM.
+- **Private by default** — notes never leave your machine when running with Ollama.
+- **No cloud lock-in or required keys** — works offline after initial model download.
+- **Runs on everyday hardware** — tuned for 3B–4B Qwen vision models on an 8 GB Apple Silicon laptop, with optional support for larger local models or **[Purdue GenAI Studio](#purdue-genai-studio-optional)**.
+- **Human-in-the-loop editing** — Ink2Web Lite prepares a faithful first draft; you inspect beside the original, click any paragraph, equation, or figure to refine it, and export when ready.
 
-Ink2Web Lite is an **assistant, not a one-click converter**: the model does a first transcription, and you review and lightly edit it before exporting. Click any part of the preview to fix it in place; your work is saved as you go.
-
-**New in 3.0:** Purdue users can switch to **Purdue GenAI Studio** instead, for much larger models. Local stays the default; see [Purdue GenAI Studio](#purdue-genai-studio-optional).
-
-**New in 3.2:** a **Page cards** export look, and, with larger models, a short title and a **detailed description** for every figure. See [What's new](#whats-new).
-
-Version 3.2.1. For step-by-step usage, see **[HELP.md](HELP.md)**.
+Version **3.3.0** · User guide: **[HELP.md](HELP.md)** · Redraw engine reference: **[docs/REDRAW.md](docs/REDRAW.md)**
 
 ---
 
-## Tuned for Qwen
+## Key Capabilities
 
-Ink2Web Lite works with small Qwen vision models:
-
-| Model | Install | Notes |
-|---|---|---|
-| **Qwen3.5 4B, MLX build** (recommended on Apple Silicon) | `ollama pull qwen3.5:4b-mlx` | Uses Ollama's MLX engine; runs on an 8 GB M1 Mac |
-| **Qwen3-VL 4B, instruct build** | `ollama pull qwen3-vl:4b-instruct` | For computers without Apple Silicon; the model the prompts were first tuned with |
-| **Qwen2.5-VL 3B** | `ollama pull qwen2.5vl:3b` | Smaller, slightly less accurate |
-
-The MLX build needs a recent Ollama (check with `ollama --version`).
-
-**Have a more powerful computer?** Choose the **Larger models** prompt under **Model and settings › Transcription prompt**. It's a second built-in prompt with more detailed rules (multi-line alignment, cases and matrices, lists and tables, look-alike characters, reading order, fuller figure descriptions) for vision models around 8B and up, such as `qwen3-vl:8b-instruct`. The short **Everyday hardware** prompt stays the default, and both use the same output formats, so everything after transcription works the same way.
-
-Other vision models may work but aren't tested. Each model has its own quirks, and the prompt is kept short on purpose: small models follow a few clear rules much better than a long list of model-specific exceptions.
-
-**Adapting it to another model?** You're welcome to. Two places to look:
-
-- **`src/lib/prompts.ts`**: the transcription prompts. Keep the everyday one short; every added rule competes with the important ones. The larger-model prompt has more room.
-- **`src/lib/transcript.ts`**: the clean-up step that repairs model output after transcription. This is the better place for model-specific fixes, because it costs nothing in prompt length and helps every model.
-
-To try a prompt change without touching the code, click the **model button** in the app's top bar, then **Advanced › Transcription prompt**: it shows the prompt, lets you edit it for the next conversions, warns if a format the app depends on is missing, saves named versions in your browser (one of which can start with the app), and copies your version for pasting into `prompts.ts`.
-
-Run `npm test` after changes, and compare a few pages you know well before and after.
+- **Transcription that respects your notes:** Converts prose, headings, lists, aligned display equations, `cases`, matrices, boxed results (`\boxed{...}`), skipped-step dots (`⋮`), underlines, and accessible ink-colored annotations (`[[red: ...]]`).
+- **Arrow & brace notes without breaking MathJax:** Model-extracted `[[note: term | words]]` annotations become clean *"where…"* callouts (inline sentences in Classic look, or `.notebox` lists in Page Cards).
+- **Layout-aware PDF/image ingestion:** Ink analysis splits two-column handouts and dense pages into readable bands for small models, detects standalone and inline drawings automatically, and groups side-by-side or stacked figures cleanly.
+- **Clean-Slate Mathematical Redraw (v2):** Figures backed by an equation or schematic can be automatically or manually redrawn as crisp inline SVGs using a compact **Line-DSL** with a native LaTeX expression compiler, nearby **Equation Menu (`@eq1`)** grounding, pre-model sketch CV, bidirectional Chamfer ink verification, pure-SVG math typesetting, and computed accessibility descriptions — while **always preserving the original cropped sketch** (`Image` / `Redrawn` / `Both`).
+- **In-place visual review:** Side-by-side original and document panes; click any block to edit with shortcuts (`⌘/Ctrl+M` or `$`, `⌘/Ctrl+B`, `⌘/Ctrl+U`, `⌘/Ctrl+Enter`) or **Re-read from image…** on a cropped region.
+- **Resilient local persistence:** Browser autosave (IndexedDB) with multi-tab conflict protection, **Recent sessions** history on the welcome screen, and portable `.ink2web.json` project files.
+- **Accessible HTML export:** Single-file HTML output in **Page cards** (letter-sheet print layout) or **Classic** look, pre-export accessibility checklist, and optional **Work offline** mode that pre-renders MathJax CHTML and embedded `@font-face` rules so exported files work with zero internet access.
 
 ---
 
-## What's new
+## Quick Start
 
-### 3.2.1
-- **Math in the Page cards caption bar.** A figure's title now shows its math rendered (for example $x = \frac{\pi}{2}$, not "x=pi/2"). The figure pass keeps the model's title with its math in `$…$`; the alt text is still its plain-words form, since that is what a screen reader says. If you rewrite the alt text, the caption bar shows your alt text instead. Alt text written with `$…$` math also renders there.
-- **Captions render math** (`$…$`) in both looks.
-- **Better plain words in alt text:** fractions and grouped exponents keep their meaning (`\frac{\pi}{2}` → "pi/2", `e^{2x}` → "e^(2x)", `\frac{x+1}{2}` → "(x+1)/2"); before, a figure-pass title could come out as "fracpi2" or "e^2x".
-- With the figure pass on, a drawing found only by the detector no longer gets a one-sentence description first that the pass then replaces (one model request less per such figure).
-- Figures converted with 3.2.0 keep their plain titles: click **Describe with the model** in the figure panel (or type a caption with `$…$`) to get the math back.
-
-### 3.2.0
-- **A new export look: Page cards.** Under **Export › Look**, choose **Page cards** (now the default) or **Classic**. Each page of your notes sits on its own card with a "Page 1 of 3" badge; the title and an optional link to the original PDF head the first card; every figure has a caption bar. Printing puts one card on each letter-size sheet. Equations on their own line can be reached with Tab.
-- **Figure titles and detailed descriptions.** With the **Larger models** prompt, the app now asks the model about each figure after a page converts (one extra request per figure), using the figure's crop and the notes around it. It writes a **short title**, which becomes the alt text, and a **detailed description** of a few sentences (axes, curves, marked points, shading), math included. The description appears under the figure as a collapsed **Detailed description**, in both looks. Turn it off under **Model and settings › Transcription prompt**.
-- **In the figure panel:** a **Detailed description** box to edit or write one by hand, and **Describe with the model** to ask again for one figure.
-- Project files keep the descriptions. Small models still work as before; the extra pass only runs with the Larger models prompt.
-- (3.1 was an experiment with OpenCode models that didn't make it in.)
-
-### 3.0.0
-- **A second place for the model to run: Purdue GenAI Studio.** Under **Model and settings › Where the model runs**, choose **This computer (Ollama)** (the default) or **Purdue GenAI Studio**, then pick one of its hosted models. Everything (convert, re-read, redraw, figures, export) works the same with either.
-- **The API key stays out of the browser.** The app's own server forwards requests to GenAI Studio and adds the key from `.env.local`. Setup below.
-- **Rate limits handled:** a request GenAI Studio turns away for being too frequent waits and is retried. A model that doesn't support structured output is asked again without it.
-- **Always visible:** a ☁ on the model button and a note in the settings when pages go to GenAI Studio. Each provider remembers its own model.
-- Why 3.0: until now, nothing ever left your computer. That is still the default, but it's no longer the only mode.
-
-### 2.2.3
-- **Figures side by side.** Drawings that sit next to each other on the page are shown next to each other in the document, in one row. The app detects this when converting; in a figure's panel, **Side by side with figure n** does it by hand. Each figure's **Width** is its share of the line; text doesn't flow beside a row, and on narrow screens the figures stack.
-
-### 2.2.2
-- Redraw specs: number fields accept constants such as `"pi/2"`, `"2pi"`, and `"e"`, and the alt text says π exactly. Ticks without labels are labeled π, 2π, … automatically. Simple multiples of e are recognized in alt text.
-- Figure panel: the crop tools sit with the layout again; **Redraw from the math** is collapsed until used; inside it, the steps follow the workflow (compare, edit the spec with its problems listed right under it, then choose **In the document** at the end).
-- Fixed: closing the panel right after typing in the spec no longer drops the last edit. Spec problems no longer interrupt screen readers on every pause, and the alt text box isn't flagged as missing when only the redraw is shown.
-
-### 2.2.1
-- Redraw: a warning when the equation in `from` doesn't match the curve that is drawn (the drawing follows `expr`, so editing only `from` changes nothing), and a note under the spec explaining that edits apply as you type.
-
-### 2.2.0
-- **Redraw figures from the math.** A graph of a stated function, a region between curves, or a phase plane can be redrawn exactly from the equation in the notes, with alt text computed from the math (zeros, jumps, asymptotes, intersections, equilibria and their types, what each trajectory does). In the figure panel, **Redraw with the model** reads the figure and the notes around it and writes a small spec; you can also write or edit the spec yourself.
-- **The image stays the default.** Choose **Image**, **Redrawn**, or **Both** (the redraw with the original sketch under it) for each figure. A spec with errors never replaces the image.
-- Redrawn figures are inline SVG in the export: sharp at any zoom, printable, and readable by screen readers. Project files keep the spec.
-- Developer preview of the engine: `figure-lab.html` (see `docs/REDRAW.md`).
-
-### 2.1.2
-- **A second built-in prompt for larger models.** Under **Model and settings › Transcription prompt**, choose **Everyday hardware** (the default: short and concrete, for small models like `qwen3-vl:4b-instruct`) or **Larger models** (more detailed rules for models around 8B and up). The choice is remembered and applies to pages you convert next.
-- The larger-model prompt asks for aligned multi-line work, `cases` and matrices, Markdown lists and tables, the author's exact notation, care with look-alike characters, reading order for margin notes, and figure descriptions written as alt text. Same formats as the everyday prompt, so clean-up, notes, figures, and export are unchanged.
-- A hint suggests the other prompt when the chosen one doesn't fit the selected model's size (it never switches by itself).
-- The prompt inspector lists both built-in prompts; a saved prompt remembers which one it was based on, and the "built-in has changed" note compares against that one.
-
-### 2.1.1
-- **Saved prompts.** Under **Model › Advanced › Transcription prompt**, an edited prompt can be saved under a name (kept in this browser). Pick a saved prompt from the **Prompt** list to load it, update it by saving under the same name, or delete it.
-- **Start with a saved prompt:** tick **Use “…” whenever the app opens** to make a saved prompt your everyday prompt. The built-in prompt itself is never changed, so app updates to it still reach you; a saved prompt notes when the built-in has changed since it was saved.
-- The banner and badge name the saved prompt in use.
-
-### 2.1 (new layout)
-- **One page at a time.** A **page list** on the left (thumbnail, status, and how many things to check on each page) and a **workspace** showing the selected page, with **← Prev / Next →**.
-- **Top bar, always visible:** title, save status, **Open** / **Save**, the **model button** (opens Model and settings), and **Export**.
-- **The original stays in view** while you scroll the document, with its tools on top: the **Figures** row, or the **re-read** controls while re-reading. The re-read proposal scrolls into view and takes the focus when it arrives.
-- **Figures open in place**, like text: click a figure in the document, its box on the original, or its number, and its panel (alt text, caption, layout, crop, and a preview) takes its place. The long list of figure cards under each page is gone.
-- **Export checklist:** Export lists what's still flagged (missing alt text, crops to check, LaTeX warnings), each linked to its page and figure.
-- **Drop files anywhere** in the window. A friendlier start screen.
-- An edit left open in the block editor is kept when you go to another page. Removing a converted page asks first.
-- Only the current page is rendered, so long PDFs stay responsive. The page list uses small thumbnails.
-
-### 2.0.1 (clean-up)
-- **A failed or stopped *Convert again* keeps the page's previous version and your edits**, still marked Done and still exported. (Before, the old text stayed on screen but was silently left out of the export.)
-- **The model does one job at a time:** re-reading waits while a page converts, and converting waits while a re-read runs, so two jobs never compete for memory on an 8 GB machine.
-- Re-read uses the **Boost contrast** setting like a full conversion, stops runaway repetition, and never proposes a figure line.
-- Removing a page (or **Clear all**, **Restore**, **Open project**) stops any re-read running on it.
-- A **Dismiss** button for the message on a page whose re-conversion failed.
-- The **Context window** field can be typed freely; it's checked when you leave the field.
-- Housekeeping: patch notes folded into this README, unused code removed, `LICENSE` restored, `dist/` ignored by git.
-
-### 2.0
-- **Re-read from image.** While editing a paragraph or equation, click **Re-read from image…**, drag a box around that handwriting on the original page, and click **Re-read this region**. The model reads only that crop and proposes a replacement you can edit. **Use this** puts it in the editor; press **Done** to keep it. Nothing changes on the page without that.
-
-### 1.9.5
-- **Prompt inspector** under **Model › Advanced**: see the exact transcription prompt sent to the model, and try an edited version on the next conversions.
-  - **Temporary by design:** the edit isn't saved and ends when you reload the app. **Reset to default** or **Use the default prompt** switches back at any time.
-  - **Always visible when active:** a *Custom prompt in use* banner sits above **Convert all**.
-  - **Format check:** a warning appears if the edited prompt no longer asks for `[[FIGURE: …]]`, `[[note: term | words]]`, or `$…$` math, which the clean-up code depends on.
-  - **Copy prompt** for pasting into `src/lib/prompts.ts` or a GitHub issue.
-
-### 1.9.4
-- **Alt text check.** A figure whose alt text looks like it holds writing from next to the drawing (math, "written beside it", "with text …", a long quote) gets a **Check alt text** badge and a short hint.
-- **Move to notes.** Select the misplaced part of the alt text and click **Move to notes**: it's removed from the alt text and added as a line right after the figure. With nothing selected, the whole alt text moves.
-- **Known issues** section added to this README and to HELP.
-
-### 1.9.3
-- The prompt says explicitly that writing next to a drawing is notes, never part of the figure's description, and its example shows a line of notes right after a figure.
-
-### 1.9.2
-- A sentence the model quotes inside a figure's description ("… with text "…" written beside it") is moved back into the notes automatically.
-
-### 1.9.1
-- A missing bracket in the model's figure line no longer pulls the following sentence into the alt text.
-
-### 1.9
-- **Click to edit.** Click a paragraph, an equation (with its "where…" note), or a figure in the preview to fix it in place. **Done** (⌘/Ctrl+Enter) saves, **Cancel** (Esc) discards. Works from the keyboard too.
-- **Markup toolbar** in the in-place editor and **Edit source**: `$x$`, `$$`, **Note**, **Box**, **⋮**, **U**nderline, **H**eading, **Color**. ⌘Z / Ctrl+Z undoes toolbar edits.
-
-### 1.8
-- **Autosave** in the browser, with **Restore** after a refresh or crash. **Save project** / **Open project** (`.ink2web.json`) to keep or move work.
-
-### 1.7 – 1.7.3
-- Arrow and brace notes become "where…" sentences after the equation, written by the app from `[[note: term | words]]` lines; notes with words get "is", purely mathematical notes get "=". Tuned for Qwen.
-
-### 1.6 and 1.6.1
-- Handwriting marks: boxes, underlines, colored comments (accessible shades), ⋮ for skipped steps. Plain-text equations rescued as math. Narrow drawings detected.
-
----
-
-## What it does
-
-- Reads handwritten notes and transcribes them into text and LaTeX, keeping the author's wording and marks.
-- Turns arrow and brace notes into "where…" sentences after the equation.
-- Finds hand-drawn figures (graphs, diagrams, sketches), crops them, and places them where they appear in the notes.
-- Copies the original layout: figure size, alignment, and text written beside a drawing.
-- Lets you fix things where you see them: click any part of the preview, with a toolbar for the marks you use most.
-- Saves your work automatically, and as project files you can keep or move.
-- Produces a single HTML file (figures embedded; MathJax loads from a CDN) built for accessibility:
-  - correct heading structure and landmarks
-  - MathJax with assistive MathML
-  - alt text for every figure
-  - colors that meet WCAG contrast, never used as the only cue
-  - reflow on small screens
-
----
-
-## Requirements
+### Requirements
 
 | Tool | Version | Purpose |
 |---|---|---|
-| [Node.js](https://nodejs.org) | 22 LTS recommended (20.19 or newer) | Runs the app |
-| [Ollama](https://ollama.com/download) | Current release | Runs the vision model locally |
-| A Qwen vision model | see [Tuned for Qwen](#tuned-for-qwen) | Reads the handwriting |
+| [Node.js](https://nodejs.org) | 20.19+ (22 LTS recommended; `>= 22.6` for `--experimental-strip-types` tests) | Runs the dev server, proxy, build, and tests |
+| [Ollama](https://ollama.com/download) | Current release | Runs local vision models |
+| Vision model | See [Recommended Models](#recommended-models) | Reads handwritten pages and figures |
 
----
+### 1. Install Ollama & Pull a Vision Model
 
-## Setup
+- **macOS:** Install Node.js (`brew install node` or installer) and Ollama, launch Ollama once, then pull the MLX build on Apple Silicon:
+  ```bash
+  ollama pull qwen3.5:4b-mlx
+  ```
+- **Windows / Linux:** Install Node.js and Ollama (on Linux: `curl -fsSL https://ollama.com/install.sh | sh`), then pull the instruct build:
+  ```bash
+  ollama pull qwen3-vl:4b-instruct
+  ```
 
-### macOS
-
-1. **Install Node.js.** Download the LTS installer from [nodejs.org](https://nodejs.org), or run `brew install node`.
-2. **Install Ollama.** Download it from [ollama.com/download](https://ollama.com/download) and move it to Applications. Open it once, and a llama icon appears in the menu bar.
-3. **Check both** in Terminal:
-   ```bash
-   node -v
-   ollama --version
-   ```
-
-### Windows
-
-1. **Install Node.js.** Run the LTS `.msi` from [nodejs.org](https://nodejs.org) and keep the option to add Node to PATH.
-2. **Install Ollama.** Run the Windows installer from [ollama.com/download](https://ollama.com/download). Ollama then runs in the system tray.
-3. **Check both** in PowerShell with `node -v` and `ollama --version`.
-
-### Linux
+### 2. Run Ink2Web Lite
 
 ```bash
-# Node.js: use your distribution's package manager, or nvm (https://github.com/nvm-sh/nvm)
-curl -fsSL https://ollama.com/install.sh | sh
-node -v && ollama --version
-```
-
-### Install a model
-
-On an Apple Silicon Mac:
-
-```bash
-ollama pull qwen3.5:4b-mlx
-```
-
-On other computers:
-
-```bash
-ollama pull qwen3-vl:4b-instruct
-```
-
-**For Qwen3-VL, use the `-instruct` tag.** The default Qwen3-VL tags (like `qwen3-vl:4b`) are "thinking" builds. They're much slower for transcription and may return empty pages. HELP.md explains why.
-
----
-
-## Purdue GenAI Studio (optional)
-
-[Purdue GenAI Studio](https://genai.rcac.purdue.edu) runs open-weight models on Purdue's servers, including vision models much larger than a laptop can hold.
-
-1. Sign in to GenAI Studio, open **Settings › Account › API Keys**, and create a key.
-2. In the project folder, copy `.env.example` to `.env.local` and paste the key:
-   ```bash
-   GENAI_API_KEY=sk-...
-   ```
-   `.env.local` is git-ignored. Never commit the key or put it anywhere the browser can read it.
-3. Restart `npm run dev` (or `npm run preview`).
-4. In the app: **Model and settings › Where the model runs › Purdue GenAI Studio**, then choose a model that reads images. Try the **Larger models** prompt.
-
-**What to send:** GenAI Studio is approved for public and sensitive (L2) data, not restricted data. Your own lecture notes are fine; **never student work** (FERPA). Saved work and project files still stay in your browser either way.
-
-**Good to know:** the key is added by the dev/preview server on this computer, so keep the server on `localhost` (don't start it with `--host` on a shared network). Pages convert one at a time, and a rate-limited request waits and retries by itself.
-
-## Running the app
-
-From the project folder:
-
-```bash
-npm install        # first time only (or after updating)
+npm install
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser. Press `Ctrl+C` in the terminal to stop the app.
+Open **http://localhost:5173** in Chrome, Edge, Firefox, or Safari. Drop a PDF or page images anywhere in the window, pick your model in the top bar, and click **Convert this page** or **Convert all**.
 
-For everyday use of a settled version, you can build once and run the faster preview server instead:
+For a compiled production preview on `http://localhost:4173`:
 
 ```bash
-npm run build      # once per new version
-npm run preview    # then open http://localhost:4173
+npm run build
+npm run preview
 ```
 
-The dev server (port 5173) and preview server (port 4173) count as different sites to the browser, so each keeps its own autosaved work. Use **Save** / **Open** (project files) to move work between them.
+> **Note:** Browsers isolate IndexedDB autosave by origin/port (`5173` vs `4173`). Use **Save** / **Open** (`.ink2web.json`) to move work between dev, preview, or another computer.
 
-If Ollama runs on a different machine:
+To connect to Ollama on another host:
 
 ```bash
 OLLAMA_HOST=http://192.168.1.20:11434 npm run dev
 ```
 
-### Updating to a new version
+---
 
-Replace the project files (keep or delete `node_modules`), then run `npm install` and `npm run dev` again. Reload the browser tab so it picks up the new code. Autosaved work is kept across updates.
+## Recommended Models
+
+Ink2Web Lite is tuned for compact Qwen vision-language models using **`-instruct`** / non-thinking builds:
+
+| Model | Pull command | Best for |
+|---|---|---|
+| **Qwen3.5 4B (MLX)** | `ollama pull qwen3.5:4b-mlx` | Everyday notes on 8 GB+ Apple Silicon Macs (recommended) |
+| **Qwen3-VL 4B Instruct** | `ollama pull qwen3-vl:4b-instruct` | Windows / Linux / non-Apple Silicon laptops |
+| **Qwen2.5-VL 3B** | `ollama pull qwen2.5vl:3b` | Tight memory fallback |
+| **Qwen3-VL 8B Instruct+** | `ollama pull qwen3-vl:8b-instruct` | Larger GPUs / desktops — pair with the **Larger models** prompt |
+
+> **Important:** Avoid raw *"thinking"* builds (such as untagged `qwen3-vl:4b`) for full-page transcription: hidden reasoning chains can fill `num_predict` before the page finishes. Check `ollama show <model>` if unsure.
+
+### Built-in Prompts & Customization
+
+Under **Model and settings › Transcription prompt**, choose:
+- **Everyday hardware** *(default)*: concise rules tailored for 3B–4B models.
+- **Larger models**: richer rules for 8B+ local models or GenAI Studio, plus an optional second pass that writes a short title (rendered with math in Page Cards) and a collapsible **Detailed description** for each figure.
+
+To customize prompts without changing source code, open **Model and settings › Advanced › Transcription prompt › Inspect or change** to edit, validate format tags, save named presets in your browser, and set a default startup prompt. For code-level model tuning, see [`src/lib/prompts.ts`](src/lib/prompts.ts) and post-processing cleanup in [`src/lib/transcript.ts`](src/lib/transcript.ts).
 
 ---
 
-## Using it (short version)
+## Purdue GenAI Studio (Optional)
 
-1. Choose a model (the model button in the top bar).
-2. Drop a PDF or photos anywhere in the window (or **Open** a saved project).
-3. Click **Convert this page**, or **Convert all** in the page list.
-4. Review each page against the original: click anything that needs fixing, edit it (or **Re-read from image…** to let the model look again), and press **Done**. Check the figures and their alt text, especially any marked **Check alt text**. Your edits are saved as you go.
-5. Click **Export**, clear anything it flags, and **Download HTML**. Only converted pages are exported.
+If you have access to [Purdue GenAI Studio](https://genai.rcac.purdue.edu), you can run larger hosted vision models through Ink2Web Lite's local server proxy:
 
-The full guide is in **[HELP.md](HELP.md)**.
+1. Generate an API key in GenAI Studio (**Settings › Account › API Keys**).
+2. Copy `.env.example` to `.env.local` (already git-ignored) and set `GENAI_API_KEY`:
+   ```bash
+   cp .env.example .env.local
+   # edit .env.local and add GENAI_API_KEY=sk-...
+   ```
+3. Restart `npm run dev` (or `npm run preview`).
+4. Open **Model and settings › Where the model runs › Purdue GenAI Studio** (`☁`), pick a vision model, and optionally enable the **Larger models** prompt.
 
----
-
-## How it works
-
-```
-PDF / image ──► page image
-                  │
-                  ├─► Vision model: transcribe ──► Markdown + LaTeX + marks + notes + figure markers
-                  │
-                  └─► Ink analysis (no model) ──► drawings + lines of text on the page
-                                  │
-          figures matched, described, cropped, and placed by their position on the page
-                                  │
-          Markdown → accessible HTML (built in code, not by the model) ──► MathJax
-```
-
-A few design choices matter for accuracy:
-
-- **The model only writes Markdown and LaTeX**, plus small extensions for underlined words, colored ink, and notes. The app's own code builds all the HTML and accessibility markup, so every export has the same structure.
-- **The model reports notes; the app writes the sentences.** Deciding where an arrow points inside LaTeX is hard for a small model. Naming the term and copying the note is not.
-- **Model quirks are fixed after transcription, not in the prompt**, whenever code can do it reliably.
-- **Figures are found from the ink itself**, not only from the model, and placed by where they sit on the page.
-- **Editing stays in the source.** The preview is split into blocks that map back to lines of the transcription, so clicking a block edits exactly those lines; the export is built from the same source.
-- **Pages convert one at a time, only when asked**, which keeps memory use low on small machines.
-- **Work is saved in the browser's own storage (IndexedDB)**, on this computer only.
+**Privacy & proxy rules:** `.env.local` stays on your machine — the key is attached by Vite's local proxy (`/genai`), never exposed to browser JavaScript. Keep Vite bound to `localhost` (do not use `--host` on shared networks). GenAI Studio is approved for public and sensitive (L2) lecture materials; **never send student work (FERPA)**.
 
 ---
 
-## Project layout
+## What's New
+
+### 3.3.0
+- **Clean-Slate Redraw v2 Engine** ([`src/lib/redraw/v2/`](src/lib/redraw/v2/), [`docs/REDRAW.md`](docs/REDRAW.md)):
+  - **Compact Line-DSL + JSON support:** Small models write readable line directives (`from:`, `axes:`, `param:`, `curve:`, `shade:`, `field:`, `flow:`, `point:`, `pole:`, `zero:`, `roc:`, `sign:`, `interval:`, `node:`, `edge:`) instead of brittle nested JSON schemas, with automatic repair over a 2-turn conversation.
+  - **Native LaTeX & piecewise expression compiler:** Evaluates `\frac`, `\sqrt`, `\sin^2 t`, `\tan^{-1}`, `|x|`, `u_c(t)`, Greek symbols, constants (`\pi/2`), and `\begin{cases}...\end{cases}` safely with zero `eval()`.
+  - **Equation Menu (`@eq1`, `@eq2`):** Extracts nearby display/inline equations around a figure marker so the model can reference exact formulas rather than re-transcribing them from pixels.
+  - **Pre-model Sketch CV & Bidirectional Ink Verification:** `analyzeSketch` gives the model the sketch's axes, quadrant ink density, and aspect ratio; `verifySceneAgainstInk` runs bidirectional Chamfer distance scoring and gates automatic document display by confidence (`high` → **Redrawn**, `medium` → **Both** + review prompt, `low` → keeps **Image** + review prompt).
+  - **Expanded figure coverage & pure-SVG math typesetter:** Cartesian, piecewise, polar, parametric, implicit contours, Riemann rectangles/trapezoids, slope & vector fields with RK4 trajectories, 1D sign/interval charts, complex $s$-plane pole-zero & ROC plots, and non-coordinate grid diagrams (`box`, `sum`, `mass`, `wall`, `spring`, `damper`). Labels render via `mathSvg.ts` into tight self-closing SVG shapes with collision-aware placement.
+  - **Two-way UI & backwards compatibility:** `RedrawSection` retains the **Image · Redrawn · Both** switch at all times, adds visual **Scene & layer controls** synced two-way with a collapsible Line-DSL/JSON drawer, and offers one-click upgrade of legacy v1 JSON specs (`upgradeV1ToScene`). `figure-lab.html` now includes both v2 and v1 presets.
+- **Self-Contained Offline Export:** Check **Work offline** in **Export** to pre-render every page equation into MathJax CHTML and inline CSS fonts directly inside the downloaded `.html` file so it opens with zero internet connection.
+- **Higher Accuracy on Small Models & Dense Pages:**
+  - Pre-OCR dense small-model pages and two-column handouts split automatically into overlapping horizontal bands before vision transcription (configurable in Settings).
+  - Rescues tabular / D-I integration-by-parts scratch columns into structured MathJax arrays (`rescueScratchNotes`).
+  - Stacked beside-text figure groups, `.notebox` list callouts in Page Cards, keyboard shortcuts in the block editor (`⌘/Ctrl+M` or `$`, `⌘/Ctrl+B`, `⌘/Ctrl+U`, `⌘/Ctrl+Enter`), **Recent sessions** restore list on the home screen, and multi-tab autosave conflict warnings.
+- **Documentation & Version Bump:** Rewritten `README.md`, `HELP.md`, `docs/REDRAW.md`, `figure-lab.html`, and `.env.example` for v3.3.0 and GitHub publication.
+
+<details>
+<summary>Previous releases (3.2.x – 1.6)</summary>
+
+- **3.2.1:** Math rendered in Page Cards figure caption bars; improved plain-word alt text for fractions and grouped exponents; reduced redundant figure-pass calls.
+- **3.2.0:** **Page cards** export look (`1 card per page` print styling), figure **Detailed description** pass with Larger models, Tab-navigable equations.
+- **3.0.0:** Optional **Purdue GenAI Studio** provider (`☁`) via local proxy, automatic rate-limit retries, per-provider model memory.
+- **2.2.x:** First mathematical SVG redraw engine (`kind: graph | region | phase`), `figure-lab.html`, side-by-side figure rows, math constants in spec fields (`"pi/2"`).
+- **2.1.x:** Single-page workspace with left page list, in-place figure panels, export checklist, **Larger models** prompt, and saved browser prompt library.
+- **2.0.x:** **Re-read from image…** cropped re-transcription, serialized model queue, failed re-conversion rollback.
+- **1.6 – 1.9.5:** Click-to-edit blocks with live preview & toolbar, Prompt Inspector, **Check alt text** & **Move to notes**, IndexedDB autosave + `.ink2web.json` project files, `[[note: ...]]` prose notes, and WCAG-accessible color/mark rendering.
+
+</details>
+
+---
+
+## How It Works
 
 ```
+PDF / Photo ──► Render page image + extract ink layout (margins, columns, drawings)
+                     │
+                     ├──► Optional dense / 2-column band splitting (small models)
+                     │
+                     ├──► Vision model (Ollama or GenAI Studio) ──► Markdown + LaTeX + marks + [[note:]] + [[FIGURE:]]
+                     │                                                       │
+                     ├──► Transcript clean-up & figure matching ◄────────────┘
+                     │         ├──► Optional figure title / detailed description pass
+                     │         └──► Redraw v2 (Sketch CV + @eq menu + Line-DSL + Chamfer check)
+                     │
+                     └──► Deterministic accessible HTML builder ──► MathJax (CDN or pre-rendered offline)
+```
+
+1. **Deterministic HTML structure:** Models write only Markdown/LaTeX and simple markers; code generates semantic HTML landmarks, heading hierarchy, figure roles, assistive MathML, and color-independent markers.
+2. **Post-processing over bloated prompts:** Model quirks are repaired in `src/lib/transcript.ts` rather than crowding small-model context windows.
+3. **Serialized model calls:** Transcription, cropped re-reads, figure descriptions, and redraws run one request at a time so 8 GB machines stay responsive.
+
+---
+
+## Project Layout
+
+```
+index.html                  App entry HTML
+figure-lab.html             Developer Figure Lab (Line-DSL v2 & Legacy JSON v1 sandbox)
 src/
-  App.tsx               app state, conversion queue, upload, saving; top bar, page list, workspace
+  App.tsx                   App state, conversion queue, recent sessions, multi-tab sync
+  types.ts                  Page, Figure, Settings, and Prompt data models
+  figure-lab.ts             Controller for figure-lab.html
   components/
-    PageView.tsx        one page: original (with figure / re-read tools), document, in-place editing
-    PageList.tsx        the page list: thumbnails, status, things to check
-    FigurePanel.tsx     one figure's alt text, caption, layout, and crop actions (opens in place)
-    RedrawSection.tsx   Redraw from the math, inside the figure panel
-    ExportPanel.tsx     export checklist and Download
-    Dialog.tsx          modal dialog (settings, export)
-    BlockEditor.tsx     the in-place editor for one block
-    MarkupToolbar.tsx   toolbar for math, notes, boxes, colors, ...
-    Preview.tsx         renders and typesets HTML; reports clicks on blocks
-    CropCanvas.tsx      figure crop boxes on the page image
-    SettingsPanel.tsx   model and settings
-    PromptInspector.tsx view, change, and save transcription prompts
+    PageView.tsx            Original-left / Document-right workspace and inline editing
+    PageList.tsx            Page thumbnails, status badges, and queue controls
+    BlockEditor.tsx         Click-to-edit block textarea + shortcuts + live preview
+    MarkupToolbar.tsx       LaTeX, Note, Box, Skipped-steps, Underline, Heading, Color buttons
+    FigurePanel.tsx         In-place figure editor (alt text, caption, crop, layout)
+    RedrawSection.tsx       Image / Redrawn / Both toggle, Scene & Layer controls, Line-DSL editor
+    CropCanvas.tsx          Interactive crop and re-read region box overlay
+    SettingsPanel.tsx       Provider (Ollama / GenAI), model picker, prompts, pipeline toggles
+    PromptInspector.tsx     Live prompt editor, validator, browser prompt library
+    ExportPanel.tsx         Accessibility checklist, Page Cards vs Classic, Work offline export
+    Preview.tsx & Dialog.tsx
   lib/
-    ollama.ts           talks to the local Ollama server
-    genai.ts            talks to Purdue GenAI Studio (OpenAI-compatible API, via the /genai proxy)
-    model.ts            picks Ollama or GenAI Studio for each request
-    prompts.ts          instructions given to the model
-    promptLibrary.ts    saved prompts and the one that starts with the app (localStorage)
-    pipeline.ts         converts one page from start to finish (default or custom prompt)
-    layout.ts           finds drawings and text lines in the ink
-    placement.ts        decides where figures go in the text
-    transcript.ts       cleans model output; figure lines; moves drawn notes out
-    markdown.ts         Markdown (+ marks, "where" sentences) → accessible HTML
-    editing.ts          click-to-edit blocks; toolbar marks; alt text check, Move to notes; things to check
-    exportHtml.ts       builds the downloadable HTML document (Classic and Page cards looks)
-    describe.ts         figure titles and detailed descriptions (larger models)
-    figureRows.ts       figures side by side (rows)
-    figureRedraw.ts     redrawn figures in the app and the export (cached SVG, unique ids)
-    redraw/             the redraw engine: specs, sampling, facts, alt text, SVG (docs/REDRAW.md)
-    storage.ts          autosave (IndexedDB) and project files
-    images.ts           PDF/image loading, contrast boost, cropping
-    mathjax.ts          MathJax for the in-app preview
-tests/                  automated tests (npm test)
-vite.config.ts          dev server, Ollama proxy, asset copying
+    ollama.ts / genai.ts / model.ts   Unified local Ollama & Purdue GenAI Studio clients
+    prompts.ts / promptLibrary.ts     Built-in prompts (Everyday / Larger) & browser presets
+    pipeline.ts                       End-to-end page conversion, band splitting, figure passes
+    layout.ts / placement.ts / figureRows.ts   Ink map, column/band splits, figure placement & rows
+    images.ts                         PDF.js rendering, contrast enhancement, base64 cropping
+    transcript.ts / describe.ts       Output cleanup, IBP rescue, figure title & description parsing
+    markdown.ts / editing.ts          Custom Markdown+marks parser, block splitting, page issues
+    exportHtml.ts / mathjax.ts        Single-file HTML export + MathJax CDN & offline CHTML compiler
+    storage.ts                        IndexedDB autosave, session history, .ink2web.json files
+    figureRedraw.ts                   UI SVG cache and per-figure ID isolation
+    redraw/                           Mathematical SVG redraw engine (docs/REDRAW.md)
+      index.ts, spec.ts, expr.ts, analyze.ts, region.ts, phase.ts, slope.ts, line.ts,
+      inkCheck.ts, describe.ts, nice.ts, sample.ts, svg.ts, conversation.ts, prompt.ts, examples.ts
+      v2/                             Clean-Slate Redraw v2 modules
+        latexExpr.ts, eqMenu.ts, mathSvg.ts, scene.ts, sketchCv.ts,
+        evaluate.ts, describeScene.ts, render.ts, converseV2.ts
+tests/                                18 automated test suites (Node + TypeScript)
 ```
-
-Runtime dependencies: React, pdf.js, and MathJax.
 
 ---
 
-## Testing
+## Development & Testing
 
 ```bash
-npm test          # all automated tests (needs Node 22.6+)
-npm run typecheck
+npm test          # Runs all 18 Node test suites (--experimental-strip-types; requires Node 22.6+)
+npm run typecheck # Runs tsc --noEmit
+npm run build     # Type-checks and builds production bundle into dist/
 ```
 
 ---
 
-## Known issues
+## Known Limitations & Quick Fixes
 
-These come from what small vision models can and can't do reliably. Each has a quick fix in the app.
-
-| Issue | What to do |
+| Issue | Workaround in App |
 |---|---|
-| **Writing next to a figure can end up in its alt text.** Small models sometimes include a sentence written beside a drawing in the drawing's description instead of the notes. The app catches the common forms automatically, but not all. | Look for figures marked **Check alt text**. Select the misplaced sentence in the alt text and click **Move to notes**. |
-| **Words and symbols can be misread** (a handwritten 7 read as 9, for example). | Proofread against the original; **High detail** helps. Click the part to fix it. |
-| **Spelling gets "corrected."** Small models tend to fix the author's spelling despite instructions to copy exactly. | Fix it back if it matters. |
-| **A "where…" note can name the wrong term.** The sentence is only as good as the term the model picks. | Click the equation and fix the `[[note: term \| words]]` line. |
-| **Very flat drawings** (a lone number line, a single long arrow) may not be detected as figures. | Click **+ Add** in the Figures row above the original. |
-
-Other limits:
-
-- **The in-place editor edits source**, not the rendered math directly; you still type LaTeX, with the toolbar's help.
-- **Autosave is per browser.** Work saved in Safari isn't visible in Chrome, and clearing the browser's site data deletes it. Use **Save** to keep a project file for anything important.
-- **Exported files load MathJax from a CDN**, so viewers need an internet connection to see the rendered math.
+| Text beside a drawing ends up inside its alt text | Look for the **Check alt text** badge, highlight the misplaced sentence, and click **Move to notes**. |
+| Misread handwritten digit or symbol (e.g., `7` vs `9`) | Open that block and use **Re-read from image…** or fix the source directly. Enabling **High detail** also helps. |
+| Redraw doesn't match a rough qualitative sketch | Toggle **In the document** back to **Image** (or **Both**), or adjust **Scene & layer controls** / `axes:` window. |
+| Very flat or faint drawings missed by ink detector | Click **+ Add** in the **Figures** row above the original page image. |
+| Editing source vs rendered math | Click-to-edit opens Markdown/LaTeX source with a live preview underneath and toolbar buttons. |
+| Sharing notes with offline viewers | Enable **Work offline** inside the **Export** dialog before clicking **Download HTML**. |
 
 ---
 
 ## License
 
-See [LICENSE](LICENSE).
+See [LICENSE](LICENSE). Developed for educators and students everywhere.

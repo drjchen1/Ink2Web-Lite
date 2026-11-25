@@ -1,14 +1,19 @@
 import type { Box, Figure, Page, Settings } from '../types.ts';
 import type { ChatMessage } from './ollama.ts';
 import { chat, endpoint } from './model.ts';
-import { REDRAW_SCHEMA, REDRAW_SYSTEM, notesAround, redrawPrompt } from './redraw/prompt.ts';
-import { specConversation, type RedrawOutcome } from './redraw/conversation.ts';
+import { notesAround } from './redraw/prompt.ts';
+import type { RedrawOutcome } from './redraw/conversation.ts';
+import { checkRedrawInk } from './redraw/inkCheck.ts';
+import { redrawSpec } from './figureRedraw.ts';
 import { DESCRIBE_SCHEMA, DESCRIBE_SYSTEM, describePrompt, describedPatch, parseDescription, type FigureDescription } from './describe.ts';
+import { extractEquationMenu } from './redraw/v2/eqMenu.ts';
+import { analyzeSketch } from './redraw/v2/sketchCv.ts';
+import { REDRAW_V2_SYSTEM, buildRedrawV2Prompt, runRedrawV2Conversation } from './redraw/v2/converseV2.ts';
 
 export type { RedrawOutcome };
-import { cropBase64, cropFigure, modelImage, pageLayout, regionImage, snapToInk, squareImage } from './images.ts';
+import { cropBase64, cropFigure, figureInkMap, modelImage, pageInkMap, regionImage, snapToInk, squareImage } from './images.ts';
 import { DESCRIBE_USER, LOCATE_SCHEMA, REREAD_USER, TRANSCRIBE_SYSTEM, locatePrompt, transcribePrompt } from './prompts.ts';
-import { defaultLayout, matchFigures } from './layout.ts';
+import { analyzeLayout, defaultLayout, detectTwoColumns, matchFigures, splitDenseBands } from './layout.ts';
 import { besideUnitCount, placeByPosition, renumber, type Placed } from './placement.ts';
 import { detectRows, figureRows, fitWidths } from './figureRows.ts';
 import { cleanModelOutput, cleanReread, extractFigures, isLooping, parseBoxes, removeMarkers, trimRepetition } from './transcript.ts';
@@ -55,38 +60,66 @@ export async function convertPage(
   prompt: string = transcribePrompt(),
 ): Promise<{ source: string; figures: Figure[] }> {
   const base = { ...endpoint(settings), model: settings.model, disableThinking: thinking, signal };
-  const layoutPromise = pageLayout(page.image);
+  const ink = await pageInkMap(page.image);
+  const layout = analyzeLayout(ink);
 
-  let looped = false;
-  let checkedAt = 0;
-  const raw = await chat({
-    ...base,
-    options: { temperature: 0, num_ctx: settings.numCtx, num_predict: 4096 },
-    messages: [
-      { role: 'system', content: TRANSCRIBE_SYSTEM },
-      {
-        role: 'user',
-        content: prompt,
-        images: [await modelImage(page.image, settings.detail, settings.enhance)],
-      },
-    ],
-    onToken: (_, full) => {
-      onProgress({ phase: 'transcribing', text: full });
-      // Abort the stream early if the model starts repeating itself.
-      if (full.length - checkedAt >= 80) {
-        checkedAt = full.length;
-        if (isLooping(full)) {
-          looped = true;
-          return false;
+  const askTranscribe = async (imgBase64: string, prefix = '') => {
+    let looped = false;
+    let checkedAt = 0;
+    const raw = await chat({
+      ...base,
+      options: { temperature: 0, num_ctx: settings.numCtx, num_predict: 4096 },
+      messages: [
+        { role: 'system', content: TRANSCRIBE_SYSTEM },
+        {
+          role: 'user',
+          content: prompt,
+          images: [imgBase64],
+        },
+      ],
+      onToken: (_, full) => {
+        onProgress({ phase: 'transcribing', text: prefix ? `${prefix}\n\n${full}` : full });
+        // Abort the stream early if the model starts repeating itself.
+        if (full.length - checkedAt >= 80) {
+          checkedAt = full.length;
+          if (isLooping(full)) {
+            looped = true;
+            return false;
+          }
         }
-      }
-    },
-  });
+      },
+    });
+    return looped ? trimRepetition(raw) : raw;
+  };
 
-  // Arrows and braces the model still draws inside an equation become notes here.
-  const text = cleanModelOutput(looped ? trimRepetition(raw) : raw);
+  let text = '';
+  const twoCol = settings.splitDensePages !== false ? detectTwoColumns(ink, layout) : null;
+  const bands = !twoCol && settings.splitDensePages !== false && settings.promptSet === 'everyday' ? splitDenseBands(layout) : null;
+
+  if (twoCol) {
+    const headerRaw = twoCol.headerBox ? await askTranscribe(await regionImage(page.image, twoCol.headerBox, settings.enhance)) : '';
+    const leftRaw = await askTranscribe(await regionImage(page.image, twoCol.leftBox, settings.enhance), headerRaw);
+    const rightRaw = await askTranscribe(await regionImage(page.image, twoCol.rightBox, settings.enhance), [headerRaw, leftRaw].filter(Boolean).join('\n\n'));
+    const parts = [
+      headerRaw ? cleanModelOutput(headerRaw) : '',
+      '[[columns]]',
+      cleanModelOutput(leftRaw),
+      '[[next]]',
+      cleanModelOutput(rightRaw),
+      '[[/columns]]',
+    ].filter(Boolean);
+    text = parts.join('\n\n');
+  } else if (bands) {
+    const rawParts: string[] = [];
+    for (const band of bands) {
+      rawParts.push(await askTranscribe(await regionImage(page.image, band, settings.enhance), rawParts.join('\n\n')));
+    }
+    text = cleanModelOutput(rawParts.join('\n\n'));
+  } else {
+    text = cleanModelOutput(await askTranscribe(await modelImage(page.image, settings.detail, settings.enhance)));
+  }
+
   let { source, descriptions } = extractFigures(text);
-  const layout = await layoutPromise;
   const regions = layout.figures;
   if (!descriptions.length && !regions.length) return { source, figures: [] };
 
@@ -132,6 +165,7 @@ export async function convertPage(
   // Larger models (3.2): every figure gets the full figure pass below, so a drawing the
   // detector found waits for it instead of first getting a one-sentence description.
   const describePass = settings.promptSet === 'large' && settings.describeFigures;
+  const autoRedraw = settings.autoRedraw !== false;
   /** One sentence for a drawing the model didn't mention ('' if the model fails). */
   const shortAlt = async (box: Box): Promise<string> => {
     try {
@@ -152,7 +186,7 @@ export async function convertPage(
 
   let nextId = descriptions.length + 1;
   for (const j of extra) {
-    const alt = describePass ? '' : await shortAlt(regions[j]);
+    const alt = describePass || autoRedraw ? '' : await shortAlt(regions[j]);
     drafts.push({ id: nextId++, box: regions[j], alt, needsReview: true, autoDetected: true, placed: true });
   }
 
@@ -198,9 +232,42 @@ export async function convertPage(
         if ((e as Error).name === 'AbortError') throw e;
         // Keep the transcription's description; the user can ask again from the figure panel.
       }
-      // A detected drawing the pass couldn't describe still gets a sentence.
-      if (!f.alt.trim()) f.alt = await shortAlt(f.box);
     }
+  }
+  // Auto-redraw (3.2.2): attempt clean SVG redraw from the notes for mathematical figures.
+  if (autoRedraw) {
+    const tempPage = { ...page, source: numbered };
+    for (const f of figures) {
+      try {
+        const r = await redrawFigure(tempPage, f, settings, thinking, signal);
+        if (r.status === 'ok') {
+          if (r.confidence === 'high') {
+            f.redraw = { spec: r.spec, show: 'redrawn' };
+          } else if (r.confidence === 'medium') {
+            f.redraw = { spec: r.spec, show: 'both' };
+            f.redrawCheck = true;
+          } else if (r.confidence === 'low') {
+            f.redraw = { spec: r.spec, show: 'image' };
+            f.redrawCheck = true;
+          } else {
+            const parsed = redrawSpec(r.spec);
+            if (parsed.ok) {
+              const check = checkRedrawInk(await figureInkMap(page.image, f.box), parsed);
+              f.redraw = { spec: r.spec, show: check.matches ? 'redrawn' : 'both' };
+              if (!check.matches) f.redrawCheck = true;
+            } else {
+              f.redraw = { spec: r.spec, show: 'redrawn' };
+            }
+          }
+        } else if (r.status === 'errors') f.redraw = { spec: r.spec, show: 'image' };
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') throw e;
+      }
+    }
+  }
+  // A detected drawing neither redrawn nor described still gets a one-sentence alt text.
+  for (const f of figures) {
+    if (!f.alt.trim() && f.redraw?.show !== 'redrawn') f.alt = await shortAlt(f.box);
   }
   return { source: numbered, figures: figures.sort((a, b) => a.id - b.id) };
 }
@@ -258,26 +325,31 @@ export async function redrawFigure(
   thinking: boolean,
   signal: AbortSignal,
 ): Promise<RedrawOutcome> {
+  const notes = notesAround(page.source, fig.id);
+  const eqMenu = extractEquationMenu(notes);
+  const ink = await figureInkMap(page.image, fig.box);
+  const profile = analyzeSketch(ink);
+  const prompt = buildRedrawV2Prompt(notes, eqMenu, profile);
   const messages: ChatMessage[] = [
-    { role: 'system', content: REDRAW_SYSTEM },
+    { role: 'system', content: REDRAW_V2_SYSTEM },
     {
       role: 'user',
-      content: redrawPrompt(notesAround(page.source, fig.id)),
+      content: prompt,
       images: [await regionImage(page.image, fig.box, settings.enhance)],
     },
   ];
-  return specConversation(
+  return runRedrawV2Conversation(
     (msgs) =>
       chat({
         ...endpoint(settings),
         model: settings.model,
         disableThinking: thinking,
         signal,
-        format: REDRAW_SCHEMA,
         options: { temperature: 0, num_ctx: settings.numCtx, num_predict: 900 },
         messages: msgs,
       }),
     messages,
+    { eqMenu, ink, profile },
   );
 }
 

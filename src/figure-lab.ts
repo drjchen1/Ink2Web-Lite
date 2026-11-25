@@ -2,7 +2,7 @@
  * Figure lab (2.2 dev): a developer page for trying redraw specs by hand.
  * Run `npm run dev` and open http://localhost:5173/figure-lab.html
  */
-import { redraw, type Facts } from './lib/redraw/index.ts';
+import { redraw, V2_TEMPLATES, type Facts, type V2TemplateKey } from './lib/redraw/index.ts';
 import { EXAMPLES } from './lib/redraw/examples.ts';
 import { nice } from './lib/redraw/nice.ts';
 import { boundaryName } from './lib/redraw/region.ts';
@@ -23,7 +23,12 @@ const n = (v: number) => nice(v).text;
 const pt = ([x, y]: [number, number]) => `(${n(x)}, ${n(y)})`;
 const STORE = 'ink2web-lite:figure-lab';
 
+const V2_LAB_EXAMPLES: { name: string; spec: string }[] = (Object.keys(V2_TEMPLATES) as V2TemplateKey[]).map((k) => ({
+  name: `v2 (${k})`,
+  spec: V2_TEMPLATES[k],
+}));
 EXAMPLES.forEach((e, i) => exampleEl.add(new Option(e.name, String(i))));
+V2_LAB_EXAMPLES.forEach((e, i) => exampleEl.add(new Option(e.name, `v2-${i}`)));
 exampleEl.add(new Option('(your own)', 'own'));
 
 let lastSvg = '';
@@ -38,6 +43,32 @@ const table = (head: string[], rows: string[][]) =>
   `</tbody></table>`;
 
 function factsHtml(f: Facts): string {
+  if (f.kind === 'scene') {
+    const ev = f.evaluated;
+    if (ev.kind === 'diagram') {
+      return `<p>Diagram scene with <strong>${ev.nodes.length}</strong> node(s) and <strong>${ev.edges.length}</strong> edge(s).</p>`;
+    }
+    const rows = ev.curves.map((c) => [
+      String(c.n),
+      c.zeros.map(n).join(', '),
+      [...c.maxima.map((p) => `max ${pt(p)}`), ...c.minima.map((p) => `min ${pt(p)}`)].join('; '),
+      c.jumps.map((j) => `${n(j.x)}: ${n(j.from)} → ${n(j.to)}`).join('; '),
+      c.asymptotes.map(n).join(', '),
+      c.gaps.map(([p, q]) => `${n(p)} to ${n(q)}`).join('; '),
+    ]);
+    const shadeRows = ev.shades.map((s) => [
+      s.hiText,
+      s.loText || 'axis',
+      `${n(s.a)} to ${n(s.b)}`,
+      s.riemannSum !== null ? `${n(s.riemannSum)} (Riemann)` : n(s.area),
+    ]);
+    return (
+      (rows.length ? table(['Curve', 'Zeros', 'Turning points', 'Jumps', 'Asymptotes', 'Undefined'], rows) : '') +
+      (shadeRows.length ? table(['Upper', 'Lower', 'Range', 'Area'], shadeRows) : '') +
+      `<p class="hint">V2 Scene (${esc(ev.spec.space ?? 'cartesian')}). Window: ${esc(ev.axes.x)} from ${n(ev.xWindow[0])} to ${n(ev.xWindow[1])}, ` +
+      `${esc(ev.axes.y)} from ${n(ev.yWindow[0])} to ${n(ev.yWindow[1])}.</p>`
+    );
+  }
   if (f.kind === 'phase') {
     const [vx, vy] = f.spec.names;
     const eqRows = f.equilibria.map((e) => [
@@ -90,6 +121,21 @@ function factsHtml(f: Facts): string {
       `y from ${n(f.yWindow[0])} to ${n(f.yWindow[1])}${f.spec.window.y ? '' : ' (automatic)'}.</p>`
     );
   }
+  if (f.kind === 'slope') {
+    const [vx, vy] = f.spec.names;
+    const rows = f.solutions.map((s) => [String(s.s.n), pt(s.s.start), s.backward ?? '—', s.forward ?? '—']);
+    return (
+      `<p>${esc(vy)}′ = ${esc(f.spec.slopeText)}.</p>` +
+      (rows.length ? table(['Solution', 'Start', 'Left', 'Right'], rows) : '') +
+      `<p class="hint">Window: ${esc(vx)} from ${n(f.xWindow[0])} to ${n(f.xWindow[1])}, ${esc(vy)} from ${n(f.yWindow[0])} to ${n(f.yWindow[1])}.</p>`
+    );
+  }
+  if (f.kind === 'line') {
+    return (
+      `<p>${f.spec.mode === 'splane' ? `Poles: ${f.spec.poles.length}, zeros: ${f.spec.zeros.length}.` : `Intervals: ${f.spec.intervals.length}, signs: ${f.spec.signs.length}.`}</p>` +
+      `<p class="hint">Window: x from ${n(f.xWindow[0])} to ${n(f.xWindow[1])}</p>`
+    );
+  }
   const s = f.spec;
   const name = (b: typeof s.hi) => boundaryName(b, s);
   const v = s.v;
@@ -119,6 +165,7 @@ function render() {
 
 function load(i: string) {
   if (i === 'own') specEl.value = localStorage.getItem(STORE) ?? '';
+  else if (i.startsWith('v2-')) specEl.value = V2_LAB_EXAMPLES[Number(i.slice(3))].spec;
   else specEl.value = JSON.stringify(EXAMPLES[Number(i)].spec, null, 2);
   render();
 }

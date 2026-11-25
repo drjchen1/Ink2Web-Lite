@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { Figure, FigureAlign } from '../types.ts';
 import { altTextIssue } from '../lib/editing.ts';
-import { figureHtml } from '../lib/exportHtml.ts';
+import { figureHtml, type ExportLook } from '../lib/exportHtml.ts';
 import { Preview } from './Preview.tsx';
 import { RedrawSection } from './RedrawSection.tsx';
 import { redrawState } from '../lib/figureRedraw.ts';
@@ -37,6 +37,7 @@ interface Props {
   /** Asks the model for a short title (alt text) and a detailed description (3.2). */
   onDescribe: (signal: AbortSignal) => Promise<FigureDescription | null>;
   onClose: () => void;
+  look?: ExportLook;
 }
 
 const ALIGNS: { value: FigureAlign; label: string }[] = [
@@ -50,7 +51,7 @@ const ALIGNS: { value: FigureAlign; label: string }[] = [
  * of the figure in the document, like the block editor does for text.
  */
 export function FigurePanel(props: Props) {
-  const { fig: f, pageId, pageNo, pos, unitCount, focusAlt, onPatch, onMove, onSnap, onInsert, onDelete, onMoveToNotes, onRedraw, redrawBlocked, onClose } =
+  const { fig: f, pageId, pageNo, pos, unitCount, focusAlt, onPatch, onMove, onSnap, onInsert, onDelete, onMoveToNotes, onRedraw, redrawBlocked, onClose, look = 'classic' } =
     props;
   const { prevFigure: prev, row, onBeside, onDescribe } = props;
   const [describing, setDescribing] = useState(false);
@@ -114,6 +115,7 @@ export function FigurePanel(props: Props) {
         {altIssue && <span className="badge error">Check alt text</span>}
         {pos === undefined && <span className="badge queued">Not placed in text</span>}
         {show !== 'image' && redraw === 'ready' && <span className="badge done">{show === 'both' ? 'Redrawn + image' : 'Redrawn'}</span>}
+        {f.redrawCheck && show !== 'image' && redraw === 'ready' && <span className="badge error">Check redraw</span>}
         {redraw === 'broken' && <span className="badge error">Redraw has errors</span>}
         <button type="button" className="primary push" onClick={onClose}>
           Done
@@ -306,7 +308,7 @@ export function FigurePanel(props: Props) {
 
       <div className="fig-panel-preview">
         <p className="hint">In the document:</p>
-        <Preview html={figureHtml(f, pageNo)} label={`Figure ${f.id} as it appears in the document`} />
+        <Preview html={figureHtml(f, pageNo, false, look)} label={`Figure ${f.id} as it appears in the document`} />
       </div>
     </div>
   );

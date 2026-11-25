@@ -236,6 +236,14 @@ main:focus { outline: none; }
 .doc .blk-row { display: inline-block; vertical-align: top; width: var(--w); }
 .doc .blk-row > figure.fig { width: 100%; margin: 0 0 1rem; }
 .doc .blk-row-start { clear: both; }
+/* Side-by-side preview cards for wrapped figures in Page cards mode. */
+.doc .blk-side-left { float: left; width: 48%; margin: 0 1.25rem 1rem 0; clear: both; }
+.doc .blk-side-right { float: right; width: 48%; margin: 0 0 1rem 1.25rem; clear: both; }
+.doc .blk-side > figure.fig { width: 100%; margin: 0; }
+@media (max-width: 700px) {
+  .doc .blk-side-left, .doc .blk-side-right { float: none; width: 100%; margin: 0 0 1rem; }
+}
+.recent-list { margin: .5rem 0 0; padding-left: 1.25rem; display: grid; gap: .3rem; }
 .block-editor { border: 2px solid var(--accent); border-radius: 8px; padding: .75rem; margin: .5rem 0 1rem; background: #fbfdff; }
 .block-editor-label { display: block; font-weight: 600; margin-bottom: .4rem; }
 .block-editor textarea { font: .9rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: .4rem 0; }
@@ -341,6 +349,19 @@ dialog.dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .redraw-spec { width: 100%; box-sizing: border-box; font: .85rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .fig-redraw label[for]:not(.sr-only) { display: block; font-weight: 600; margin: .5rem 0 .25rem; }
 .fig-redraw .warn ul { margin: .25rem 0 0; padding-left: 1.25rem; }
+.redraw-visual { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .65rem; margin: .5rem 0; background: #fafbfc; }
+.redraw-visual summary { cursor: pointer; font-weight: 600; font-size: .92rem; }
+.redraw-grid { display: grid; gap: .45rem .65rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); margin-top: .5rem; }
+.redraw-field { display: flex; flex-direction: column; gap: .2rem; font-size: .85rem; }
+.redraw-field span { font-weight: 600; color: #334155; }
+.redraw-field input, .redraw-field select { font: inherit; padding: .28rem .4rem; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+.redraw-pair { display: grid; grid-template-columns: 1fr 1fr; gap: .3rem; }
+.redraw-layers { margin-top: .55rem; display: flex; flex-direction: column; gap: .35rem; }
+.redraw-layer-row { display: grid; grid-template-columns: 4.5rem 1fr auto; gap: .35rem; align-items: center; }
+.redraw-layer-badge { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; background: #e2e8f0; color: #1e293b; border-radius: 4px; padding: .2rem .35rem; text-align: center; }
+.redraw-layer-row input { font: .82rem/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: .25rem .4rem; border: 1px solid var(--line); border-radius: 4px; }
+.redraw-spec-drawer { margin: .5rem 0; }
+.redraw-spec-drawer summary { cursor: pointer; font-weight: 600; font-size: .92rem; margin-bottom: .35rem; }
 
 /* Where the model runs (3.0) */
 .provider-set { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem .25rem; margin: 0 0 1rem; }

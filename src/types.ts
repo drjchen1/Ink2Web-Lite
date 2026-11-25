@@ -19,7 +19,7 @@ export type FigureShow = 'image' | 'redrawn' | 'both';
  * simply falls back to the image.
  */
 export interface FigureRedraw {
-  /** The redraw spec as JSON text (see docs/REDRAW.md). Kept as typed, errors and all. */
+  /** The redraw spec as Line-DSL or JSON text (see docs/REDRAW.md). Kept as typed, errors and all. */
   spec: string;
   /** 'image' until the user chooses otherwise. */
   show: FigureShow;
@@ -65,6 +65,8 @@ export interface Figure {
   besidePrevious?: boolean;
   /** Redrawn from the math (2.2), if the user has asked for it. */
   redraw?: FigureRedraw;
+  /** True when automatic ink comparison says the redrawn curve should be checked against the sketch. */
+  redrawCheck?: boolean;
 }
 
 /**
@@ -129,6 +131,10 @@ export interface Settings {
    * figure's short title (the alt text) and detailed description. One request per figure.
    */
   describeFigures: boolean;
+  /** Automatically attempt mathematical SVG redraw during page conversion. */
+  autoRedraw: boolean;
+  /** Split dense small-model pages into horizontal bands or two-column handouts before reading. */
+  splitDensePages: boolean;
 }
 
 export interface ModelInfo {

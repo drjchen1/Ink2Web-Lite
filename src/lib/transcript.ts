@@ -23,8 +23,13 @@ export function cleanModelOutput(raw: string, style: AnnotationStyle = 'notes'):
   t = normalizeColorMarkup(t);
   t = unwrapTextMath(t);
   t = mergeArrowNotes(t);
+  t = fixLaplaceBraces(t);
+  t = fixDisplayAlignment(t);
   t = promoteEquationLines(t);
-  if (style === 'notes') t = annotationsToNotes(t);
+  if (style === 'notes') {
+    t = rescueScratchNotes(t);
+    t = annotationsToNotes(t);
+  }
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -77,14 +82,28 @@ export interface Annotation {
 }
 
 /**
+ * Short convergence or domain condition braces (e.g. \underbrace{...}_{\to 0 if s > 0}
+ * or \underbrace{0}_{(s > 0)}) belong inline inside the equation rather than extracted
+ * into "where" notes.
+ */
+function isInlineConditionBrace(cmd: string, clean: string): boolean {
+  if (cmd !== 'underbrace' && cmd !== 'overbrace') return false;
+  if (/^(?:\\(?:to|rightarrow|longrightarrow)\b|→)/.test(clean)) return true;
+  if (/^\([^()]{1,32}\)$/.test(clean)) return /[<>≤≥≠=]|\\(?:le|leq|ge|geq|ne|neq)\b/.test(clean);
+  return false;
+}
+
+/**
  * Removes \underset, \overset, \underbrace and \overbrace from a LaTeX expression,
  * keeping the annotated term, and returns the notes that were attached.
  */
 export function extractAnnotations(tex: string): { tex: string; notes: Annotation[] } {
   const notes: Annotation[] = [];
   let s = tex;
-  const cmd = /\\(underset|overset|stackrel|underbrace|overbrace)\s*\{/;
+  const cmd = /\\(underset|overset|stackrel|underbrace|overbrace)\s*\{/g;
+  let searchFrom = 0;
   for (let guard = 0; guard < 50; guard++) {
+    cmd.lastIndex = searchFrom;
     const m = cmd.exec(s);
     if (!m) break;
     const open1 = m.index + m[0].length - 1;
@@ -117,8 +136,13 @@ export function extractAnnotations(tex: string): { tex: string; notes: Annotatio
       end = end2;
     }
     const clean = cleanLabel(label);
+    if (clean && isInlineConditionBrace(m[1], clean)) {
+      searchFrom = m.index + m[0].length;
+      continue;
+    }
     if (clean) notes.push({ target: target.trim(), label: clean });
     s = s.slice(0, m.index) + target + s.slice(end);
+    searchFrom = m.index;
   }
   return { tex: s, notes };
 }
@@ -184,9 +208,25 @@ export function mergeArrowNotes(md: string): string {
   const out: string[] = [];
   const short = (l: string) => {
     const t = l.trim();
-    return t.length > 0 && t.length <= 24 && !t.includes('=') && !t.includes('$$') && t.split(/\s+/).length <= 2 && !/^#|^\[\[/.test(t);
+    return (
+      t.length > 0 &&
+      t.length <= 24 &&
+      !t.includes('=') &&
+      !t.includes('$$') &&
+      t.split(/\s+/).length <= 2 &&
+      !/[,:;]$/.test(t) &&
+      !/^#|^\[\[/.test(t)
+    );
   };
   for (let i = 0; i < lines.length; i++) {
+    const sentenceArrow = lines[i].match(/^\s*([→⟶])\s+(.+)$/);
+    if (sentenceArrow) {
+      const rest = sentenceArrow[2].trim();
+      if (rest.split(/\s+/).length >= 3 || rest.includes('$')) {
+        out.push(lines[i].replace(/^\s*[→⟶]\s+/, '$\\to$ '));
+        continue;
+      }
+    }
     const m = lines[i].match(ARROW_LINE);
     if (!m) {
       out.push(lines[i]);
@@ -208,6 +248,182 @@ export function mergeArrowNotes(md: string): string {
     }
     segments.push(seg);
     out.push(`[[note: ${segments.join(' · ')}]]`);
+  }
+  return out.join('\n');
+}
+
+/**
+ * Escapes unescaped outer braces on Laplace transforms (\mathcal{L}{...} -> \mathcal{L}\{...\})
+ * and normalizes \mathscr{L} -> \mathcal{L}.
+ */
+export function fixLaplaceBraces(md: string): string {
+  const fixTex = (tex: string): string => {
+    let s = tex.replace(/\\mathscr\s*\{\s*L\s*\}/g, '\\mathcal{L}');
+    const re = /\\mathcal\s*\{\s*L\s*\}(?:\s*\^\s*(?:\{-1\}|-1))?\s*\{/g;
+    let from = 0;
+    for (let guard = 0; guard < 50; guard++) {
+      re.lastIndex = from;
+      const m = re.exec(s);
+      if (!m) break;
+      const open = m.index + m[0].length - 1;
+      const end = groupEnd(s, open);
+      if (end < 0) break;
+      s = `${s.slice(0, open)}\\{${s.slice(open + 1, end - 1)}\\}${s.slice(end)}`;
+      from = open + 2;
+    }
+    return s;
+  };
+  let t = md.replace(/\\mathscr\s*\{\s*L\s*\}/g, '\\mathcal{L}');
+  t = t.replace(/\$\$([\s\S]+?)\$\$/g, (_, inner: string) => `$$${fixTex(inner)}$$`);
+  t = t.replace(/(?<!\$)\$(?!\$)([^$\n]+?)(?<!\$)\$(?!\$)/g, (_, inner: string) => `$${fixTex(inner)}$`);
+  return t;
+}
+
+/** Inserts & before the first top-level "=" in an equation line. */
+function alignFirstEq(tex: string): string {
+  const t = tex.trim();
+  if (t.startsWith('=')) return `&${t}`;
+  let depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (c === '\\') {
+      if (t.startsWith('\\begin{', i)) break;
+      i++;
+      continue;
+    }
+    if (c === '{') depth++;
+    else if (c === '}') depth = Math.max(0, depth - 1);
+    else if (depth === 0 && c === '=') {
+      const prev = t[i - 1] ?? '';
+      const next = t[i + 1] ?? '';
+      if (!/[<>!:=]/.test(prev) && next !== '=') return `${t.slice(0, i)}&=${t.slice(i + 1)}`;
+    }
+  }
+  return t;
+}
+
+/**
+ * Wraps stray & alignments in \begin{aligned}...\end{aligned}, and merges consecutive
+ * display equations starting with "=" into one aligned block.
+ */
+export function fixDisplayAlignment(md: string): string {
+  // 1. Wrap bare & inside a $$...$$ block that lacks a \begin{...} environment.
+  let t = md.replace(/\$\$([\s\S]+?)\$\$/g, (whole, inner: string) => {
+    if (!/\\begin\s*\{/.test(inner) && /(?<!\\)&/.test(inner)) {
+      return `$$\n\\begin{aligned}\n${inner.trim()}\n\\end{aligned}\n$$`;
+    }
+    return whole;
+  });
+
+  // 2. Merge consecutive $$...$$ blocks where continuation blocks start with "=".
+  const tokens: { kind: 'math' | 'gap'; text: string }[] = [];
+  const blockRe = /\$\$([\s\S]+?)\$\$/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = blockRe.exec(t))) {
+    if (m.index > last) tokens.push({ kind: 'gap', text: t.slice(last, m.index) });
+    tokens.push({ kind: 'math', text: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < t.length) tokens.push({ kind: 'gap', text: t.slice(last) });
+
+  const canMerge = (inner: string) =>
+    !/\\begin\s*\{aligned\}|\\begin\s*\{align|\\vdots|\\boxed\b/.test(inner) && !/\n/.test(inner.trim());
+
+  const out: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const cur = tokens[i];
+    if (cur.kind !== 'math' || !canMerge(cur.text)) {
+      out.push(cur.kind === 'math' ? `$$${cur.text}$$` : cur.text);
+      continue;
+    }
+    const group = [cur.text];
+    let j = i;
+    while (j + 2 < tokens.length && tokens[j + 1].kind === 'gap' && /^\s*$/.test(tokens[j + 1].text) && tokens[j + 2].kind === 'math') {
+      const nextInner = tokens[j + 2].text;
+      if (!canMerge(nextInner) || !/^\s*=(?!=)/.test(nextInner)) break;
+      group.push(nextInner);
+      j += 2;
+    }
+    if (group.length === 1) {
+      out.push(`$$${cur.text}$$`);
+    } else {
+      const rows = [alignFirstEq(group[0]), ...group.slice(1).map((g) => `&${g.trim()}`)];
+      out.push(`$$\n\\begin{aligned}\n${rows.join(' \\\\\n')}\n\\end{aligned}\n$$`);
+      i = j;
+    }
+  }
+  return out.join('');
+}
+
+const IBP_PART = /^(u|dv|du|v)\s*=\s*(.+)$/i;
+
+/** Parses a complete 4-part integration-by-parts table/list (u, dv, du, v) or returns null. */
+function parseIbpParts(raw: string): { u: string; dv: string; du: string; v: string } | null {
+  const cleaned = raw
+    .replace(/\\begin\{(?:array|aligned|align\*?|gathered|cases)\}(?:\{[^}]*\})?/gi, '\n')
+    .replace(/\\end\{(?:array|aligned|align\*?|gathered|cases)\}/gi, '\n')
+    .replace(/\\(?:text|textrm|mbox)\s*\{([^{}]*)\}/g, '$1')
+    .replace(/\$/g, '')
+    .trim();
+  const chunks = cleaned
+    .split(/(?:\\\\|\\qquad|\\quad|[&\n]|(?<![\\])[,;])+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (chunks.length < 4 || chunks.length > 6) return null;
+  const map: Partial<Record<'u' | 'dv' | 'du' | 'v', string>> = {};
+  for (const c of chunks) {
+    const m = c.match(IBP_PART);
+    if (!m) return null;
+    const key = m[1].toLowerCase() as 'u' | 'dv' | 'du' | 'v';
+    if (key in map) return null;
+    map[key] = `${key} = ${m[2].trim()}`;
+  }
+  if (!map.u || !map.dv || !map.du || !map.v) return null;
+  return { u: map.u, dv: map.dv, du: map.du, v: map.v };
+}
+
+/**
+ * Rescues margin integration-by-parts scratch tables (u, dv, du, v) whether jammed
+ * at the end of a display integral via \quad/\qquad or left as separate scratch lines.
+ */
+export function rescueScratchNotes(md: string): string {
+  // 1. Trailing scratch table inside a $$...$$ block that also holds an integral.
+  let t = md.replace(/\$\$([\s\S]+?)\$\$/g, (whole, inner: string) => {
+    if (!/\\int(?![A-Za-z])/.test(inner)) return whole;
+    const sep = inner.match(/([\s\S]*?)(?:\\qquad|\\quad|\\hspace\s*\{[^}]+\})\s*([\s\S]+)$/);
+    if (!sep) return whole;
+    const parsed = parseIbpParts(sep[2]);
+    if (!parsed) return whole;
+    const main = sep[1].replace(/[\\,\s]+$/, '').trim();
+    if (!main) return whole;
+    return `$$${main}$$\n[[scratch: integration by parts | ${parsed.u}, ${parsed.dv} ; ${parsed.du}, ${parsed.v}]]`;
+  });
+
+  // 2. Standalone 1-4 line scratch blocks holding the full {u, dv, du, v} set.
+  const lines = t.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*\[\[\s*scratch\s*:/i.test(lines[i])) {
+      out.push(lines[i]);
+      continue;
+    }
+    let matched: { end: number; ibp: { u: string; dv: string; du: string; v: string } } | null = null;
+    for (let len = 1; len <= 6 && i + len <= lines.length; len++) {
+      const slice = lines.slice(i, i + len).join('\n');
+      if (/\[\[|\\int(?![A-Za-z])/.test(slice)) break;
+      const ibp = parseIbpParts(slice.replace(/\$\$/g, ''));
+      if (ibp) {
+        matched = { end: i + len - 1, ibp };
+        break;
+      }
+    }
+    if (matched) {
+      out.push(`[[scratch: integration by parts | ${matched.ibp.u}, ${matched.ibp.dv} ; ${matched.ibp.du}, ${matched.ibp.v}]]`);
+      i = matched.end;
+    } else {
+      out.push(lines[i]);
+    }
   }
   return out.join('\n');
 }
@@ -496,6 +712,12 @@ export function sourceUnits(source: string): { start: number; end: number }[] {
       while (end + 1 < lines.length && (lines[++end].match(/\$\$/g) ?? []).length % 2 === 0);
     } else if (env && !line.includes(`\\end{${env[1]}}`)) {
       while (end + 1 < lines.length && !lines[++end].includes(`\\end{${env[1]}}`));
+    } else if (/^\s*\[\[\s*box(?:\s*:[^\]]*)?\s*\]\]\s*$/i.test(line)) {
+      const closeAt = lines.findIndex((l, k) => k > i && /^\s*\[\[\s*\/box\s*\]\]\s*$/i.test(l));
+      if (closeAt > i) end = closeAt;
+    } else if (/^\s*\[\[\s*columns\s*\]\]\s*$/i.test(line)) {
+      const closeAt = lines.findIndex((l, k) => k > i && /^\s*\[\[\s*\/columns\s*\]\]\s*$/i.test(l));
+      if (closeAt > i) end = closeAt;
     }
     units.push({ start: i, end });
     i = end;

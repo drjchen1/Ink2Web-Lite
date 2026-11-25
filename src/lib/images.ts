@@ -1,6 +1,6 @@
 import type { Box } from '../types.ts';
 import { clampBox } from './transcript.ts';
-import { analyzeLayout, buildInkMap, type InkMap, type Layout } from './layout.ts';
+import { analyzeLayout, buildInkMap, cropInkMap, type InkMap, type Layout } from './layout.ts';
 
 /** All raster work: loading files, preparing model input, cropping figures, ink analysis. */
 
@@ -221,6 +221,16 @@ function inkMap(blob: Blob): Promise<InkMap> {
     inkMaps.set(blob, p);
   }
   return p;
+}
+
+/** Cached InkMap of the full page (no model, no extra canvas if already computed). */
+export function pageInkMap(blob: Blob): Promise<InkMap> {
+  return inkMap(blob);
+}
+
+/** InkMap cropped to a normalized figure box. */
+export async function figureInkMap(blob: Blob, box: Box): Promise<InkMap> {
+  return cropInkMap(await inkMap(blob), box);
 }
 
 /** Finds drawings and text lines on the page from ink alone. */

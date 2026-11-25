@@ -11,16 +11,36 @@ interface Props {
 }
 
 const BUTTONS: { mark: Mark; text: string; title: string }[] = [
-  { mark: 'math', text: '$x$', title: 'Inline math: wrap the selection in $…$' },
-  { mark: 'display', text: '$$', title: 'Equation on its own line: $$…$$' },
+  { mark: 'math', text: '$x$', title: 'Inline math (⌘/Ctrl+M): wrap the selection in $…$' },
+  { mark: 'display', text: '$$', title: 'Equation on its own line (⌘/Ctrl+Shift+M): $$…$$' },
   { mark: 'note', text: 'Note', title: 'Arrow or brace note: select the term first, then type what the note says' },
-  { mark: 'box', text: 'Box', title: 'Box around a formula or result' },
+  { mark: 'box', text: 'Box', title: 'Box around a formula or result (⌘/Ctrl+B)' },
+  { mark: 'callout', text: 'Callout', title: 'Highlighted callout card ([[box: Title]]…[[/box]])' },
+  { mark: 'columns', text: 'Columns', title: 'Two side-by-side columns ([[columns]]…[[next]]…[[/columns]])' },
   { mark: 'vdots', text: '⋮', title: 'Skipped steps (vertical dots) on the next line' },
-  { mark: 'underline', text: 'U', title: 'Underline' },
+  { mark: 'underline', text: 'U', title: 'Underline (⌘/Ctrl+U)' },
   { mark: 'heading', text: 'H', title: 'Heading (toggle)' },
 ];
 
 const COLORS = ['red', 'green', 'blue', 'orange', 'purple'];
+
+/** Applies `mark` to `ta` via execCommand so native Undo keeps working. */
+export function applyMarkToTextarea(ta: HTMLTextAreaElement, mark: Mark, onChange: (value: string) => void) {
+  const ed = applyMark(ta.value, ta.selectionStart, ta.selectionEnd, mark);
+  ta.focus();
+  ta.setSelectionRange(ed.from, ed.to);
+  let ok = false;
+  try {
+    ok = ed.insert ? document.execCommand('insertText', false, ed.insert) : document.execCommand('delete');
+  } catch {
+    ok = false;
+  }
+  if (!ok) onChange(applyEdit(ta.value, ed));
+  requestAnimationFrame(() => {
+    ta.focus();
+    ta.setSelectionRange(ed.selStart, ed.selEnd);
+  });
+}
 
 /**
  * Buttons that insert Ink2Web's markup around the selection. Edits go through the
@@ -28,24 +48,7 @@ const COLORS = ['red', 'green', 'blue', 'orange', 'purple'];
  */
 export function MarkupToolbar({ target, onChange, label }: Props) {
   const apply = (mark: Mark) => {
-    const ta = target.current;
-    if (!ta) return;
-    const ed = applyMark(ta.value, ta.selectionStart, ta.selectionEnd, mark);
-    ta.focus();
-    ta.setSelectionRange(ed.from, ed.to);
-    // execCommand keeps the edit in the textarea's undo history and fires an input event.
-    let ok = false;
-    try {
-      ok = ed.insert ? document.execCommand('insertText', false, ed.insert) : document.execCommand('delete');
-    } catch {
-      ok = false;
-    }
-    if (!ok) onChange(applyEdit(ta.value, ed));
-    // Restore the selection after React re-renders the textarea.
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(ed.selStart, ed.selEnd);
-    });
+    if (target.current) applyMarkToTextarea(target.current, mark, onChange);
   };
 
   return (
