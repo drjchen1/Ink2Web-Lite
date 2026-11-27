@@ -32,6 +32,10 @@ export interface RenderOptions {
   /** Returns the HTML for a row of figures side by side (internal [[FIGROW a b]] line). */
   figureRow?: (ids: number[]) => string;
   ctx?: RenderContext;
+  /** How [[note: term | words]] lines render: 'prose' ("where ...") or 'list' ("where:" + bullets). */
+  noteStyle?: 'prose' | 'list';
+  /** Render standalone $$\boxed{...}$$ display equations as semantic .notebox callouts. */
+  notebox?: boolean;
 }
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
@@ -58,6 +62,7 @@ export const CLEAR_MARK = '[[CLEAR]]';
  * ---------------------------------------------------------------------------------- */
 
 const NOTE_RE = new RegExp(`^\\s*\\[\\[\\s*note(?:\\s+(${INK_NAMES}))?\\s*:\\s*([\\s\\S]*?)\\s*\\]\\]\\s*$`, 'i');
+const SCRATCH_RE = /^\s*\[\[\s*scratch\s*:\s*([^|\]]+?)\s*\|\s*([\s\S]+?)\s*\]\]\s*$/i;
 const GREEK_NAMES = 'alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega';
 const FUNC_NAMES = /^(sin|cos|tan|sec|csc|cot|log|exp|ln)$/i;
 /** Single words that describe rather than name ("upward"): "x is upward", not "x is the upward". */
@@ -88,10 +93,12 @@ export function parseNote(line: string): NoteParts | null {
 const stripMath = (s: string) => s.replace(/\$/g, '').replace(TEXT_CMD, '$1').trim();
 const norm = (s: string) => s.replace(/\s+|\\[,;!]|\\left|\\right/g, '');
 
-/** English words in a label (3+ letters, not LaTeX commands or function names). */
+/** English words in a label (3+ letters or common 2-letter words, not LaTeX commands or function names). */
 function labelWords(label: string): string[] {
   const t = label.replace(/\$/g, '').replace(TEXT_CMD, ' $1 ').replace(/\\[a-zA-Z]+/g, ' ');
-  return (t.match(/[A-Za-z]{3,}/g) ?? []).filter((w) => !FUNC_NAMES.test(w));
+  const long = (t.match(/[A-Za-z]{3,}/g) ?? []).filter((w) => !FUNC_NAMES.test(w));
+  const two = t.match(/\b(?:if|to|at|in|on|is|by|or|so|up|we|do|of|as|an|no|it)\b/gi) ?? [];
+  return [...long, ...two];
 }
 
 /**
@@ -101,15 +108,33 @@ function labelWords(label: string): string[] {
  * Words (also inside \text{...}) stay text; everything else becomes $...$.
  */
 export function labelToProse(label: string): string {
+  const trimmed = label.trim();
+  if (
+    /\$[^$]+\$/.test(trimmed) &&
+    (trimmed.match(/\$/g) ?? []).length % 2 === 0 &&
+    !/\\[a-zA-Z]/.test(trimmed.replace(/\$[^$]*\$/g, ''))
+  ) {
+    return trimmed;
+  }
   const parts: string[] = [];
   const pushText = (s: string) => {
     const t = s.replace(/\s+/g, ' ').trim();
     if (t) parts.push(t);
   };
   const pushMath = (s: string) => {
-    const t = s.trim();
+    let t = s.trim();
     if (!t) return;
-    parts.push(/^[.,;:!?()]+$/.test(t) ? t : `$${t}$`);
+    while (/^["“]/.test(t)) {
+      parts.push(t[0]);
+      t = t.slice(1).trim();
+    }
+    const trailing: string[] = [];
+    while (/["”]$/.test(t)) {
+      trailing.unshift(t[t.length - 1]);
+      t = t.slice(0, -1).trim();
+    }
+    if (t) parts.push(/^[.,;:!?()]+$/.test(t) ? t : `$${t}$`);
+    for (const q of trailing) parts.push(q);
   };
   const segments = label.replace(/\$/g, '').split(/(\\(?:text|textrm|mbox|mathrm)\s*\{[^{}]*\})/);
   for (const seg of segments) {
@@ -131,7 +156,27 @@ export function labelToProse(label: string): string {
     }
     pushMath(seg.slice(last));
   }
-  return parts.join(' ').replace(/\s+([.,;:!?])/g, '$1');
+  let out = '';
+  let inQuote = false;
+  let attachNext = false;
+  for (const p of parts) {
+    if (p === '“' || (p === '"' && !inQuote)) {
+      if (p === '"') inQuote = true;
+      out = out ? `${out} ${p}` : p;
+      attachNext = true;
+    } else if (p === '”' || (p === '"' && inQuote)) {
+      if (p === '"') inQuote = false;
+      out += p;
+      attachNext = false;
+    } else if (/^[.,;:!?)]+$/.test(p)) {
+      out += p;
+      attachNext = false;
+    } else {
+      out = attachNext || !out ? `${out}${p}` : `${out} ${p}`;
+      attachNext = false;
+    }
+  }
+  return out;
 }
 
 /**
@@ -160,12 +205,42 @@ export function noteClause({ target, label, color }: NoteParts): string | null {
     const hasMath = prose.includes('$');
     const wordCount = prose.replace(/\$[^$]*\$/g, ' ').trim().split(/\s+/).filter(Boolean).length;
     if (/^(the|a|an)\s/i.test(prose)) clause = `$${t}$ is ${prose}`;
-    else if (/^(is|are|was|means|represents|gives|equals)\b/i.test(prose)) clause = `$${t}$ ${prose}`;
+    else if (
+      /^(is|are|was|means|represents|gives|equals|corresponds|resets|turns|puts|starts|ends|becomes|goes|stays|drops|rises|shifts|delays)\b/i.test(
+        prose,
+      )
+    )
+      clause = `$${t}$ ${prose}`;
+    else if (/^\?|^(we|you|it|this|that|turn|reset|break|check|use|take|find)\b/i.test(prose)) clause = `$${t}$: ${prose}`;
     else if (!hasMath && wordCount === 1 && DESCRIPTIVE.test(prose)) clause = `$${t}$ is ${prose}`;
     else if (!hasMath && wordCount <= 3) clause = `$${t}$ is the ${prose}`;
     else clause = `$${t}$ is ${prose}`;
   }
   return color ? `[[${color}: ${clause}]]` : clause;
+}
+
+/** One bullet item for the structured "where:" list style: "* $term$: explanation". */
+export function noteListItem({ target, label, color }: NoteParts): string | null {
+  const t = stripMath(target);
+  const raw = label.replace(/\r\n?/g, ' ').trim();
+  if (!t || !raw || norm(t) === norm(stripMath(raw))) return null;
+  const balancedDollar =
+    /\$[^$]+\$/.test(raw) &&
+    (raw.match(/\$/g) ?? []).length % 2 === 0 &&
+    !/\\[a-zA-Z]/.test(raw.replace(/\$[^$]*\$/g, ''));
+  let body: string;
+  if (balancedDollar) {
+    body = raw;
+  } else {
+    const noDollar = raw.replace(/\$/g, '').trim();
+    const plain = stripMath(noDollar);
+    const named = plain.match(new RegExp(`^(?:${GREEK_NAMES})\\s*\\(([^()\\\\]+)\\)$`, 'i'));
+    if (named) body = named[1].trim();
+    else if (!labelWords(noDollar).length) body = `$${plain}$`;
+    else body = labelToProse(noDollar);
+  }
+  const item = `$${t}$: ${body}`;
+  return `* ${color ? `[[${color}: ${item}]]` : item}`;
 }
 
 /** "a", "a and b", "a, b, and c" */
@@ -177,13 +252,30 @@ function joinClauses(c: string[]): string {
 
 /**
  * Turns each run of consecutive [[note: term | words]] lines (blank lines between
- * them allowed) into one sentence, e.g. "where $R$ is the new amplitude and
- * $\delta$ is the phase shift." Notes without "|" are left for the plain note style.
+ * them allowed) into either a "where ..." sentence ('prose') or a structured
+ * "**where:**" bullet list ('list'). Notes without "|" are left for the plain note style.
  */
-export function composeNotes(md: string): string {
+export function composeNotes(md: string, style: 'prose' | 'list' = 'prose'): string {
   const lines = md.split('\n');
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
+    const scratch = lines[i].match(SCRATCH_RE);
+    if (scratch) {
+      const label = scratch[1].trim();
+      const rowGroups = scratch[2]
+        .split(/(?<!\\);/)
+        .map((r) => r.split(/(?<!\\),/).map((p) => p.trim()).filter(Boolean))
+        .filter((r) => r.length > 0);
+      if (rowGroups.length) {
+        if (style === 'list') {
+          out.push(`**where** (${label}):`, ...rowGroups.map((r) => `* ${r.map((p) => `$${p}$`).join(', ')}`), '');
+        } else {
+          const all = rowGroups.flat().map((p) => `$${p}$`);
+          out.push(`[[where: where (${label}) ${joinClauses(all)}.]]`, '');
+        }
+      }
+      continue;
+    }
     const first = parseNote(lines[i]);
     if (!first) {
       out.push(lines[i]);
@@ -199,9 +291,14 @@ export function composeNotes(md: string): string {
       notes.push(next);
       j = k + 1;
     }
-    const clauses = notes.map(noteClause).filter((c): c is string => !!c);
-    // The sentence ends its paragraph, so the next line of the notes starts a new one.
-    if (clauses.length) out.push(`[[where: where ${joinClauses(clauses)}.]]`, '');
+    if (style === 'list') {
+      const items = notes.map(noteListItem).filter((c): c is string => !!c);
+      if (items.length) out.push('**where:**', ...items, '');
+    } else {
+      const clauses = notes.map(noteClause).filter((c): c is string => !!c);
+      // The sentence ends its paragraph, so the next line of the notes starts a new one.
+      if (clauses.length) out.push(`[[where: where ${joinClauses(clauses)}.]]`, '');
+    }
     i = j - 1;
   }
   return out.join('\n');
@@ -309,14 +406,31 @@ export function clapTextLabels(tex: string): string {
 /** All LaTeX adjustments applied before rendering. */
 export const prepareTex = (tex: string) => clapTextLabels(accessibleTexColors(tex));
 
-function restoreMath(html: string, math: MathToken[]): string {
+function restoreMath(html: string, math: MathToken[], tableMath?: Set<number>): string {
   return html.replace(PH_RE, (_, i: string) => {
-    const m = math[Number(i)];
+    const idx = Number(i);
+    const m = math[idx];
     if (!m) return '';
     if (m.tex === '\\$') return '$';
-    const tex = escapeHtml(prepareTex(m.tex));
+    const raw = tableMath?.has(idx) ? m.tex.replace(/(?<![\\^_])\\frac\s*\{/g, '\\dfrac{') : m.tex;
+    const tex = escapeHtml(prepareTex(raw));
     return m.display ? `\\[${tex}\\]` : `\\(${tex}\\)`;
   });
+}
+
+/** Unwraps standalone `\boxed{...}` (plus optional leading `=` or trailing `(s > 0)`) for `.notebox`. */
+function unwrapBoxedDisplay(tex: string): string | null {
+  const m = tex.match(/^\s*(=\s*)?\\boxed\s*\{/);
+  if (!m) return null;
+  const open = m[0].length - 1;
+  const end = groupEnd(tex, open);
+  if (end < 0) return null;
+  const inner = tex.slice(open + 1, end - 1).trim();
+  const rest = tex.slice(end).trim();
+  const restClean = rest.replace(/\\(?:quad|qquad|,|;)\b/g, '').trim();
+  if (restClean && !/^\([^()]{1,40}\)$/.test(restClean)) return null;
+  const prefix = m[1] ? `${m[1].trim()} ` : '';
+  return `${prefix}${inner}${rest ? ` ${rest}` : ''}`;
 }
 
 const splitRow = (line: string) =>
@@ -329,6 +443,7 @@ const splitRow = (line: string) =>
 
 /** "- sin(δ)" or "- 3x + 1": a minus sign starting an expression, not a bullet point. */
 function looksLikeMath(content: string): boolean {
+  if (content.includes(':')) return false;
   const t = content.replace(/\u0001\d+\u0002/g, ' x ').replace(/\\[a-zA-Z]+/g, ' ');
   if (!/^[\s(\[{]*([A-Za-z]\b|\d|[A-Za-z]{2,4}\s*[(^]|x\b)/.test(t)) return false;
   const words = (t.match(/[A-Za-z]{3,}/g) ?? []).filter((w) => !/^(sin|cos|tan|sec|csc|cot|log|exp)$/i.test(w));
@@ -341,6 +456,11 @@ const HR_RE = /^\s*([-*_])(\s*\1){2,}\s*$/;
 const FIG_RE = /^\s*\[\[\s*FIGURE\s+(\d+)\s*\]\]\s*$/i;
 /** Internal: figures side by side, [[FIGROW 1 2]] (written by exportHtml.withRows). */
 const FIGROW_RE = /^\s*\[\[FIGROW((?:\s+\d+)+)\s*\]\]\s*$/;
+const BOX_START_RE = /^\s*\[\[\s*box(?:\s*:\s*([^\]]*))?\s*\]\]\s*$/i;
+const BOX_END_RE = /^\s*\[\[\s*\/box\s*\]\]\s*$/i;
+const COLS_START_RE = /^\s*\[\[\s*columns\s*\]\]\s*$/i;
+const COLS_NEXT_RE = /^\s*\[\[\s*next\s*\]\]\s*$/i;
+const COLS_END_RE = /^\s*\[\[\s*\/columns\s*\]\]\s*$/i;
 const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
 /**
@@ -354,17 +474,20 @@ export function inlineMarkdown(md: string): string {
 
 export function markdownToHtml(md: string, opts: RenderOptions): string {
   const ctx = opts.ctx ?? { lastHeading: 1 };
-  const { text, math } = protectMath(composeNotes(md.replace(/\r\n?/g, '\n')));
+  const { text, math } = protectMath(composeNotes(md.replace(/\r\n?/g, '\n'), opts.noteStyle ?? 'prose'));
   const lines = text.split('\n');
   const out: string[] = [];
   let para: string[] = [];
+  const tableMath = new Set<number>();
+  let boxDepth = 0;
+  let colDepth = 0;
 
   // List stack: indentation + type of each open list.
   const lists: { indent: number; tag: 'ul' | 'ol' }[] = [];
   let itemOpen = false;
 
   const flushPara = () => {
-    if (para.length) out.push(`<p>${para.map(inline).join('<br>\n')}</p>`);
+    if (para.length) out.push(`<p>${inline(para.join('\n')).replace(/\n/g, '<br>\n')}</p>`);
     para = [];
   };
   const closeLists = (toDepth = 0) => {
@@ -396,6 +519,42 @@ export function markdownToHtml(md: string, opts: RenderOptions): string {
       continue;
     }
 
+    const boxStart = line.match(BOX_START_RE);
+    if (boxStart) {
+      closeBlocks();
+      boxDepth++;
+      out.push(`<div class="notebox" role="region" aria-label="${escapeHtml(boxStart[1]?.trim() || 'Highlighted note')}">`);
+      continue;
+    }
+    if (BOX_END_RE.test(line)) {
+      closeBlocks();
+      if (boxDepth > 0) {
+        out.push('</div>');
+        boxDepth--;
+      }
+      continue;
+    }
+
+    if (COLS_START_RE.test(line)) {
+      closeBlocks();
+      colDepth++;
+      out.push('<div class="side-by-side"><div class="col">');
+      continue;
+    }
+    if (COLS_NEXT_RE.test(line)) {
+      closeBlocks();
+      if (colDepth > 0) out.push('</div><div class="col">');
+      continue;
+    }
+    if (COLS_END_RE.test(line)) {
+      closeBlocks();
+      if (colDepth > 0) {
+        out.push('</div></div>');
+        colDepth--;
+      }
+      continue;
+    }
+
     const row = line.match(FIGROW_RE);
     if (row) {
       closeBlocks();
@@ -414,11 +573,14 @@ export function markdownToHtml(md: string, opts: RenderOptions): string {
 
     const disp = line.match(PH_LINE);
     if (disp && math[Number(disp[1])]?.display) {
-      const block = `<div class="math-display">${placeholder(Number(disp[1]))}</div>`;
+      const idx = Number(disp[1]);
+      const unwrapped = opts.notebox ? unwrapBoxedDisplay(math[idx].tex) : null;
+      if (unwrapped !== null) math[idx].tex = unwrapped;
+      const block = `<div class="math-display">${placeholder(idx)}</div>`;
       flushPara();
       // Indented under a list item: keep it inside the item; otherwise it ends the list.
       if (!(lists.length && itemOpen && /^\s+/.test(line))) closeLists();
-      out.push(block);
+      out.push(unwrapped !== null ? `<div class="notebox" role="region" aria-label="Highlighted formula">${block}</div>` : block);
       continue;
     }
 
@@ -439,14 +601,27 @@ export function markdownToHtml(md: string, opts: RenderOptions): string {
     }
 
     if (line.trim().startsWith('|') && TABLE_SEP.test(lines[i + 1] ?? '')) {
+      let caption = '';
+      if (para.length === 1) {
+        const capMatch = para[0].trim().match(/^(?:\*\*(.+?)\*\*|caption:\s*(.+))$/i);
+        if (capMatch) {
+          caption = (capMatch[1] ?? capMatch[2]).trim();
+          para = [];
+        }
+      }
       closeBlocks();
       const head = splitRow(line);
       const rows: string[][] = [];
       i += 2;
       while (i < lines.length && lines[i].trim().startsWith('|')) rows.push(splitRow(lines[i++]));
       i--;
+      for (const cell of [...head, ...rows.flat()]) {
+        for (const m of cell.matchAll(PH_RE)) tableMath.add(Number(m[1]));
+      }
+      const label = caption ? caption.replace(PH_RE, ' ').replace(/\s+/g, ' ').trim() || 'Table' : 'Table';
       out.push(
-        '<div class="table-wrap" role="region" aria-label="Table" tabindex="0"><table>' +
+        `<div class="table-wrap" role="region" aria-label="${escapeHtml(label)}" tabindex="0"><table>` +
+          (caption ? `<caption>${inline(caption)}</caption>` : '') +
           `<thead><tr>${head.map((c) => `<th scope="col">${inline(c)}</th>`).join('')}</tr></thead>` +
           `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody>` +
           '</table></div>',
@@ -459,7 +634,7 @@ export function markdownToHtml(md: string, opts: RenderOptions): string {
       const quote: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, ''));
       i--;
-      out.push(`<blockquote><p>${quote.map(inline).join('<br>\n')}</p></blockquote>`);
+      out.push(`<blockquote><p>${inline(quote.join('\n')).replace(/\n/g, '<br>\n')}</p></blockquote>`);
       continue;
     }
 
@@ -495,8 +670,10 @@ export function markdownToHtml(md: string, opts: RenderOptions): string {
     para.push(line.trim());
   }
   closeBlocks();
+  while (boxDepth-- > 0) out.push('</div>');
+  while (colDepth-- > 0) out.push('</div></div>');
 
-  return restoreMath(out.join('\n'), math);
+  return restoreMath(out.join('\n'), math, tableMath);
 }
 
 /** Quick structural check of LaTeX that small models commonly get wrong. */

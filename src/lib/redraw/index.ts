@@ -13,39 +13,84 @@
  * svg.ts      the drawing (every kind becomes a Plot)
  */
 import { analyzeGraph, type GraphFacts } from './analyze.ts';
-import { describeGraph } from './describe.ts';
+import { describeGraph, mathifyAlt } from './describe.ts';
 import { analyzeRegion, describeRegion, intersectionMarks, regionWindows, type RegionFacts } from './region.ts';
 import { analyzePhase, clipLine, describePhase, isStable, phaseWindows, type PhaseFacts } from './phase.ts';
+import { analyzeSlope, describeSlope, type SlopeFacts } from './slope.ts';
+import { analyzeLine, describeLine, renderLineSvg, type LineFacts } from './line.ts';
 import { autoY, type Pt } from './sample.ts';
 import { nice } from './nice.ts';
 import { checkSpec, valueAt, type GraphSpec, type Spec } from './spec.ts';
 import { COLORS, GRAY, renderPlot, type Arrow, type Plot, type PlotCurve } from './svg.ts';
+import {
+  formatSceneDsl,
+  parseSceneDsl,
+  upgradeV1ToScene,
+  V2_TEMPLATES,
+  type SceneLayer,
+  type SceneSpec,
+  type SpaceKind,
+  type V2TemplateKey,
+} from './v2/scene.ts';
+import { evaluateScene, type EvaluatedScene } from './v2/evaluate.ts';
+import { describeScene } from './v2/describeScene.ts';
+import { renderSceneSvg } from './v2/render.ts';
 
-export type Facts = GraphFacts | RegionFacts | PhaseFacts;
+export type Facts = GraphFacts | RegionFacts | PhaseFacts | SlopeFacts | LineFacts | { kind: 'scene'; evaluated: EvaluatedScene };
 
 export type RedrawResult =
-  | { ok: true; svg: string; alt: { short: string; long: string }; facts: Facts; spec: Spec; warnings: string[] }
+  | { ok: true; svg: string; alt: { short: string; long: string; markdown: string }; facts: Facts; spec: Spec | SceneSpec; warnings: string[] }
   | { ok: false; errors: string[]; warnings: string[] };
 
 function graphPlot(spec: GraphSpec, f: GraphFacts): Plot {
   let colorIdx = 0;
+  const [a, b] = spec.window.x;
+  const tol = (b - a) * 1e-7;
+  const curveColors = f.curves.map((c) =>
+    c.curve.style === 'dashed' && !c.curve.label ? GRAY : COLORS[colorIdx++ % COLORS.length],
+  );
+  const autoPoints: typeof spec.points = [];
+  f.curves.forEach((c, ci) => {
+    if (!c.curve.piecewise) return;
+    const color = curveColors[ci];
+    const hasMark = (x: number, y: number, fill: 'open' | 'closed') =>
+      spec.points.some((p) => p.fill === fill && Math.abs(p.x - x) <= tol && Math.abs(p.y - y) <= tol) ||
+      autoPoints.some((p) => p.fill === fill && Math.abs(p.x - x) <= tol && Math.abs(p.y - y) <= tol);
+    for (const piece of c.curve.pieces) {
+      const ends: [number, 'open' | 'closed' | null][] = [
+        [piece.on[0], piece.ends[0]],
+        [piece.on[1], piece.ends[1]],
+      ];
+      for (const [x, fill] of ends) {
+        if (!fill || x <= a + tol || x >= b - tol) continue;
+        const atJump = c.jumps.some((j) => Math.abs(j.x - x) <= tol);
+        if (!atJump && fill !== 'open') continue;
+        const y = piece.f(x);
+        if (!Number.isFinite(y) || hasMark(x, y, fill)) continue;
+        autoPoints.push({ x, y, label: null, fill, pos: null, auto: true, color });
+      }
+    }
+  });
   return {
     xWindow: spec.window.x,
     yWindow: f.yWindow,
     axes: spec.axes,
     ticks: spec.ticks,
     fills: [],
-    curves: f.curves.map((c) => ({
+    curves: f.curves.map((c, ci) => ({
       segments: c.segments,
       style: c.curve.style,
       label: c.curve.label,
-      color: c.curve.style === 'dashed' ? GRAY : COLORS[colorIdx++ % COLORS.length],
+      color: curveColors[ci],
     })),
     edges: [],
     strips: [],
     guides: f.curves.flatMap((c) => c.asymptotes),
+    jumpGuides: spec.jumpGuides
+      ? f.curves.flatMap((c) => c.jumps.map((j) => ({ x: j.x, y0: j.from, y1: j.to })))
+      : [],
     impulses: spec.impulses,
-    points: spec.points,
+    points: [...autoPoints, ...spec.points],
     labels: spec.labels,
   };
 }
@@ -173,12 +218,103 @@ function phasePlot(f: PhaseFacts): Plot {
   };
 }
 
+function slopePlot(f: SlopeFacts): Plot {
+  const { spec } = f;
+  const [x0, x1] = f.xWindow;
+  const [y0, y1] = f.yWindow;
+  const [, vy] = spec.names;
+  const curves: PlotCurve[] = [];
+  const arrows: Arrow[] = [];
+
+  if (spec.show.has('field')) {
+    const nx = 19;
+    const ny = 12;
+    for (let i = 0; i < nx; i++)
+      for (let j = 0; j < ny; j++) {
+        const t = x0 + ((i + 0.5) * (x1 - x0)) / nx;
+        const y = y0 + ((j + 0.5) * (y1 - y0)) / ny;
+        const s = spec.f(t, y);
+        if (Number.isFinite(s)) arrows.push({ at: [t, y], dir: [1, s] });
+      }
+  }
+  if (f.isocline.length) {
+    curves.push({
+      segments: f.isocline,
+      style: 'dashed',
+      label: `${vy}′ = 0`,
+      color: COLORS[1],
+      width: 1.8,
+    });
+  }
+  const startDots = f.solutions.map((s) => ({
+    x: s.s.start[0],
+    y: s.s.start[1],
+    label: null,
+    fill: 'closed' as const,
+    pos: null,
+    auto: true,
+    color: COLORS[0],
+  }));
+  for (const s of f.solutions) {
+    curves.push({ segments: [s.path], style: 'solid', label: s.s.label, color: COLORS[0], width: 2.1 });
+  }
+  return {
+    xWindow: f.xWindow,
+    yWindow: f.yWindow,
+    axes: spec.axes,
+    ticks: spec.ticks,
+    fills: [],
+    curves,
+    edges: [],
+    strips: [],
+    guides: [],
+    impulses: [],
+    points: [...startDots, ...spec.points],
+    labels: spec.labels,
+    arrows,
+  };
+}
+
+function looksLikeV2(input: unknown): boolean {
+  if (typeof input === 'object' && input !== null && 'scene' in input) return true;
+  if (typeof input !== 'string') return false;
+  const s = input
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .trim()
+    .replace(/^```(?:[a-zA-Z]+)?\s*\n?|\s*```$/g, '')
+    .trim();
+  if (!s) return false;
+  if (s.startsWith('{')) return /"scene"\s*:/.test(s);
+  return true;
+}
+
 export function redraw(input: unknown, opts: { id: string }): RedrawResult {
+  if (looksLikeV2(input)) {
+    const parsed = parseSceneDsl(input);
+    if (parsed.scene === 'image') {
+      return { ok: false, errors: ['Set to keep the original image (scene: image).'], warnings: parsed.warnings };
+    }
+    if (!parsed.scene) return { ok: false, errors: parsed.errors, warnings: parsed.warnings };
+    const ev = evaluateScene(parsed.scene);
+    if (!ev.evaluated) {
+      return { ok: false, errors: ev.errors, warnings: [...parsed.warnings, ...ev.warnings] };
+    }
+    const alt = describeScene(ev.evaluated);
+    const svg = renderSceneSvg(ev.evaluated, { id: opts.id, title: alt.short, desc: alt.long });
+    return {
+      ok: true,
+      svg,
+      alt,
+      facts: { kind: 'scene', evaluated: ev.evaluated },
+      spec: parsed.scene,
+      warnings: [...parsed.warnings, ...ev.warnings],
+    };
+  }
   const { spec, errors, warnings } = checkSpec(input);
   if (!spec) return { ok: false, errors, warnings };
   let facts: Facts;
-  let plot: Plot;
-  let alt: { short: string; long: string };
+  let altBase: { short: string; long: string };
+  let svg: string;
   if (spec.kind === 'graph') {
     const yWindow =
       spec.window.y ??
@@ -189,25 +325,45 @@ export function redraw(input: unknown, opts: { id: string }): RedrawResult {
       );
     const g = analyzeGraph(spec, yWindow);
     facts = g;
-    alt = describeGraph(g);
-    plot = graphPlot(spec, g);
+    altBase = describeGraph(g);
+    svg = renderPlot(graphPlot(spec, g), { id: opts.id, title: altBase.short, desc: altBase.long });
   } else if (spec.kind === 'phase') {
     const w = phaseWindows(spec);
     const p = analyzePhase(spec, w.x, w.y);
     if (typeof p === 'string') return { ok: false, errors: [p], warnings };
     facts = p;
-    alt = describePhase(p);
-    plot = phasePlot(p);
+    altBase = describePhase(p);
+    svg = renderPlot(phasePlot(p), { id: opts.id, title: altBase.short, desc: altBase.long });
+  } else if (spec.kind === 'slope') {
+    const sf = analyzeSlope(spec);
+    facts = sf;
+    altBase = describeSlope(sf);
+    svg = renderPlot(slopePlot(sf), { id: opts.id, title: altBase.short, desc: altBase.long });
+  } else if (spec.kind === 'line') {
+    const lf = analyzeLine(spec);
+    facts = lf;
+    altBase = describeLine(lf);
+    svg = renderLineSvg(lf, { id: opts.id, title: altBase.short, desc: altBase.long });
   } else {
     const w = regionWindows(spec);
     const r = analyzeRegion(spec, w.x, w.y);
     facts = r;
-    alt = describeRegion(r);
-    plot = regionPlot(r);
+    altBase = describeRegion(r);
+    svg = renderPlot(regionPlot(r), { id: opts.id, title: altBase.short, desc: altBase.long });
   }
-  const svg = renderPlot(plot, { id: opts.id, title: alt.short, desc: alt.long });
+  const alt = { ...altBase, markdown: mathifyAlt(altBase.long) };
   return { ok: true, svg, alt, facts, spec, warnings };
 }
 
 export { checkSpec } from './spec.ts';
 export { parse, toText, ExprError } from './expr.ts';
+export {
+  parseSceneDsl,
+  formatSceneDsl,
+  upgradeV1ToScene,
+  V2_TEMPLATES,
+  type V2TemplateKey,
+  type SceneSpec,
+  type SceneLayer,
+  type SpaceKind,
+};

@@ -149,10 +149,37 @@ export function projectFileName(title: string): string {
  * ------------------------------------------------------------------------------- */
 
 const DB_NAME = 'ink2web-lite';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const META = 'session';
 const IMAGES = 'images';
+const RECENT = 'recent';
 const KEY = 'current';
+const MAX_RECENT = 5;
+
+export interface RecentSummary {
+  id: string;
+  title: string;
+  pageCount: number;
+  doneCount: number;
+  savedAt: number;
+}
+
+interface RecentRecord extends MetaRecord {
+  id: string;
+}
+
+/** Deduplicates by id, sorts newest-first, and keeps at most `max` recent snapshots. */
+export function pruneRecentList<T extends { id: string; savedAt: number }>(items: T[], max = MAX_RECENT): T[] {
+  const seen = new Set<string>();
+  return [...items]
+    .sort((a, b) => b.savedAt - a.savedAt)
+    .filter((it) => {
+      if (seen.has(it.id)) return false;
+      seen.add(it.id);
+      return true;
+    })
+    .slice(0, max);
+}
 
 interface MetaRecord extends SessionMeta {
   format: number;
@@ -171,6 +198,7 @@ function db(): Promise<IDBDatabase> {
         const d = req.result;
         if (!d.objectStoreNames.contains(META)) d.createObjectStore(META);
         if (!d.objectStoreNames.contains(IMAGES)) d.createObjectStore(IMAGES);
+        if (!d.objectStoreNames.contains(RECENT)) d.createObjectStore(RECENT);
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error ?? new Error('Could not open local storage.'));
@@ -196,11 +224,11 @@ const request = <T>(r: IDBRequest<T>) =>
 /** Page images already written in this browser session (they never change). */
 const written = new Set<string>();
 
-/** Saves the session. Writes only images not saved yet and removes images of deleted pages. */
+/** Saves the session. Writes only images not saved yet and removes orphaned images (preserving recent snapshots). */
 export async function saveSession(meta: SessionMeta, pages: Page[]): Promise<number> {
   const d = await db();
   const savedAt = Date.now();
-  const tx = d.transaction([META, IMAGES], 'readwrite');
+  const tx = d.transaction([META, IMAGES, RECENT], 'readwrite');
   const images = tx.objectStore(IMAGES);
   const keep = new Set(pages.map((p) => p.id));
   for (const p of pages) {
@@ -209,9 +237,15 @@ export async function saveSession(meta: SessionMeta, pages: Page[]): Promise<num
       written.add(p.id);
     }
   }
-  const keys = images.getAllKeys();
-  keys.onsuccess = () => {
-    for (const k of keys.result) if (!keep.has(String(k))) images.delete(k);
+  const recentReq = tx.objectStore(RECENT).getAll();
+  recentReq.onsuccess = () => {
+    for (const r of (recentReq.result ?? []) as RecentRecord[]) {
+      for (const p of r.pages ?? []) keep.add(p.id);
+    }
+    const keys = images.getAllKeys();
+    keys.onsuccess = () => {
+      for (const k of keys.result) if (!keep.has(String(k))) images.delete(k);
+    };
   };
   const record: MetaRecord = { format: FORMAT_VERSION, savedAt, ...meta, pages: pages.map(toStored) };
   tx.objectStore(META).put(record, KEY);
@@ -241,14 +275,105 @@ export async function loadSession(): Promise<Session | null> {
   return { title: rec.title, titleAuto: rec.titleAuto, pageMarkers: rec.pageMarkers, savedAt: rec.savedAt, pages };
 }
 
-/** Deletes the saved session and its images. */
+/** Deletes the saved active session (preserving images still referenced by recent snapshots). */
 export async function clearSession(): Promise<void> {
   const d = await db();
-  const tx = d.transaction([META, IMAGES], 'readwrite');
+  const tx = d.transaction([META, IMAGES, RECENT], 'readwrite');
   tx.objectStore(META).delete(KEY);
-  tx.objectStore(IMAGES).clear();
+  const keep = new Set<string>();
+  const recentReq = tx.objectStore(RECENT).getAll();
+  recentReq.onsuccess = () => {
+    for (const r of (recentReq.result ?? []) as RecentRecord[]) {
+      for (const p of r.pages ?? []) keep.add(p.id);
+    }
+    const images = tx.objectStore(IMAGES);
+    const keys = images.getAllKeys();
+    keys.onsuccess = () => {
+      for (const k of keys.result) if (!keep.has(String(k))) images.delete(k);
+    };
+  };
   written.clear();
   await done(tx);
+}
+
+/** Moves the active saved session into the Recent list (keeping up to MAX_RECENT). */
+export async function archiveCurrentSession(): Promise<void> {
+  const d = await db();
+  const tx = d.transaction([META, RECENT], 'readwrite');
+  const cur = (await request(tx.objectStore(META).get(KEY))) as MetaRecord | undefined;
+  if (!cur || !cur.pages?.length) return;
+  const store = tx.objectStore(RECENT);
+  const all = ((await request(store.getAll())) as RecentRecord[]) ?? [];
+  const docId = cur.pages[0].id;
+  const next = pruneRecentList([...all, { ...cur, id: docId }], MAX_RECENT);
+  store.clear();
+  for (const r of next) store.put(r, r.id);
+  await done(tx);
+}
+
+/** Lists up to MAX_RECENT archived sessions in this browser. */
+export async function listRecentSessions(): Promise<RecentSummary[]> {
+  const d = await db();
+  const tx = d.transaction([RECENT], 'readonly');
+  const all = ((await request(tx.objectStore(RECENT).getAll())) as RecentRecord[]) ?? [];
+  return pruneRecentList(all, MAX_RECENT).map((r) => ({
+    id: r.id,
+    title: r.title,
+    pageCount: r.pages.length,
+    doneCount: r.pages.filter((p) => restoredStatus(p) === 'done').length,
+    savedAt: r.savedAt,
+  }));
+}
+
+/** Loads one archived recent session by id (promoting its blobs back to usable pages). */
+export async function loadRecentSession(id: string): Promise<Session | null> {
+  const d = await db();
+  const tx = d.transaction([RECENT, IMAGES], 'readonly');
+  const rec = (await request(tx.objectStore(RECENT).get(id))) as RecentRecord | undefined;
+  if (!rec || !Array.isArray(rec.pages) || !rec.pages.length || rec.format > FORMAT_VERSION) return null;
+  const images = tx.objectStore(IMAGES);
+  const pages: Session['pages'] = [];
+  for (const p of rec.pages) {
+    const image = (await request(images.get(p.id))) as Blob | undefined;
+    if (image) pages.push({ ...p, status: restoredStatus(p), image });
+  }
+  if (!pages.length) return null;
+  return { title: rec.title, titleAuto: rec.titleAuto, pageMarkers: rec.pageMarkers, savedAt: rec.savedAt, pages };
+}
+
+/* ---------------------------------------------------------------------------------
+ * Multi-tab autosave coordination (lazy BroadcastChannel, browser only)
+ * ------------------------------------------------------------------------------- */
+
+const SYNC_CHANNEL = 'ink2web-lite:sync';
+const TAB_ID = Math.random().toString(36).slice(2, 10);
+
+/** Broadcasts that this tab wrote a newer session to IndexedDB. */
+export function notifyTabSave(savedAt: number): void {
+  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return;
+  try {
+    const bc = new BroadcastChannel(SYNC_CHANNEL);
+    bc.postMessage({ tabId: TAB_ID, savedAt });
+    bc.close();
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Listens for saves made by other open tabs; returns a cleanup callback. */
+export function watchTabSaves(onExternalSave: (savedAt: number) => void): () => void {
+  if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') return () => undefined;
+  try {
+    const bc = new BroadcastChannel(SYNC_CHANNEL);
+    bc.onmessage = (ev: MessageEvent<{ tabId?: string; savedAt?: number }>) => {
+      if (ev.data && ev.data.tabId && ev.data.tabId !== TAB_ID && typeof ev.data.savedAt === 'number') {
+        onExternalSave(ev.data.savedAt);
+      }
+    };
+    return () => bc.close();
+  } catch {
+    return () => undefined;
+  }
 }
 
 /** Marks pages whose images are already in storage (after a restore), so they aren't rewritten. */

@@ -14,7 +14,7 @@ export const SIZE = { w: 480, h: 320 };
 const M = { l: 46, r: 22, t: 18, b: 34 };
 /** Width / height of the plotting area: windows with this ratio have equal scales. */
 export const PLOT_ASPECT = (SIZE.w - M.l - M.r) / (SIZE.h - M.t - M.b);
-export const COLORS = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#E69F00', '#56B4E9'];
+export const COLORS = ['#4338ca', '#b91c1c', '#009E73', '#D55E00', '#CC79A7', '#56B4E9'];
 export const GRAY = '#6b6b6b';
 const INK = '#1a1a1a';
 const FIELD = '#8c8c8c';
@@ -50,6 +50,8 @@ export interface Plot {
   strips: { rect: [Pt, Pt]; label: string | null; side: 'below' | 'right' }[];
   /** Vertical dashed guide lines (asymptotes). */
   guides: number[];
+  /** Vertical dashed guide segments at jump discontinuities. */
+  jumpGuides?: { x: number; y0: number; y1: number }[];
   impulses: Impulse[];
   points: PointMark[];
   labels: TextLabel[];
@@ -225,8 +227,9 @@ export function renderPlot(plot: Plot, opts: SvgOptions): string {
     if (p.x < a || p.x > b || p.y < c || p.y > d) continue;
     const x = X(p.x);
     const y = Y(p.y);
+    const stroke = p.color ?? INK;
     ink.push([x, y]);
-    pointG.push(`<circle cx="${r1(x)}" cy="${r1(y)}" r="3.8" stroke="${INK}" stroke-width="1.5" fill="${p.fill === 'open' ? '#fff' : INK}"/>`);
+    pointG.push(`<circle cx="${r1(x)}" cy="${r1(y)}" r="3.8" stroke="${stroke}" stroke-width="1.5" fill="${p.fill === 'open' ? '#fff' : stroke}"/>`);
   }
   for (const p of plot.points) {
     if (!p.label || p.x < a || p.x > b || p.y < c || p.y > d) continue;
@@ -312,6 +315,12 @@ export function renderPlot(plot: Plot, opts: SvgOptions): string {
     parts.push(
       `<g stroke="${GRAY}" stroke-width="1" stroke-dasharray="3 4">`,
       ...plot.guides.map((x) => `<line x1="${r1(X(x))}" y1="${M.t}" x2="${r1(X(x))}" y2="${M.t + ph}"/>`),
+      `</g>`,
+    );
+  if (plot.jumpGuides?.length)
+    parts.push(
+      `<g stroke="#475569" stroke-width="1.2" stroke-dasharray="4 4" clip-path="url(#${id}-clip)">`,
+      ...plot.jumpGuides.map((g) => `<line x1="${r1(X(g.x))}" y1="${r1(Y(g.y0))}" x2="${r1(X(g.x))}" y2="${r1(Y(g.y1))}"/>`),
       `</g>`,
     );
 

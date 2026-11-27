@@ -36,7 +36,7 @@
   <body>
     <header>
       <h1>Figure lab</h1>
-      <p>Write a redraw spec on the left; the figure, its alt text, and the computed facts update as you type. Developer preview: nothing here touches your project.</p>
+      <p>Write a redraw spec (Line-DSL or legacy JSON) on the left; the SVG, alt text, and computed facts update live as you type.</p>
     </header>
     <main>
       <section aria-labelledby="spec-h">
@@ -46,43 +46,26 @@
           <select id="example"></select>
         </div>
         <textarea id="spec" spellcheck="false" aria-describedby="spec-help"></textarea>
-        <p id="spec-help" class="hint">JSON. Expressions use calculator syntax: <code>exp(-t)*cos(3t)</code>, <code>u(t-2)</code>, <code>sqrt(x)</code>, <code>pi</code>. Number fields also take constants in quotes: <code>"pi/2"</code>, <code>"2pi"</code>, <code>"e"</code>.</p>
-        <details>
-          <summary>Shared fields</summary>
+        <p id="spec-help" class="hint">Accepts <strong>Line-DSL (v2)</strong> or legacy <strong>JSON (v1)</strong>. Expressions accept native LaTeX (<code>\frac{1}{x}</code>, <code>\sqrt{x}</code>, <code>u_c(t)</code>, <code>\begin{cases}...\end{cases}</code>) as well as calculator syntax (<code>exp(-t)*cos(3t)</code>, <code>pi/2</code>).</p>
+        <details open>
+          <summary>Line-DSL (v2) quick reference</summary>
           <ul>
-            <li><code>kind</code>: <code>"graph"</code>, <code>"region"</code>, or <code>"phase"</code>; <code>from</code>: the equation on the page (required)</li>
-            <li><code>window</code>: <code>{"x": [a, b], "y": [c, d]}</code>; either may be left out for automatic (graphs need <code>x</code>)</li>
-            <li><code>axes</code>: <code>{"x": "t", "y": "y"}</code>; the independent axis's label is the variable when it is one letter (else set <code>var</code>)</li>
-            <li><code>points</code>: <code>{"at": [x, y]}</code> or <code>{"on": {"curve": …, "at": …}}</code>, with optional <code>label</code>, <code>fill</code> (<code>"closed"</code>/<code>"open"</code>), <code>pos</code> (<code>"above"</code>/<code>"below"</code>/<code>"left"</code>/<code>"right"</code>)</li>
-            <li><code>labels</code>: <code>{"at": [x, y], "text": …}</code>; <code>ticks</code>: <code>{"x": [0, {"at": 3.14159265, "label": "π"}]}</code></li>
-            <li>Functions: sin cos tan sec csc cot asin acos atan sinh cosh tanh exp ln log (natural) log10 log2 sqrt cbrt abs sign floor ceil min max, and <code>u</code>/<code>H</code> (unit step, 1 at 0).</li>
+            <li><strong>Header:</strong> <code>scene: plot | diagram | image</code> (plot is default), <code>from: ...</code> (required), <code>space: cartesian | polar | complex | 1d</code>, <code>schematic: true</code>, <code>param: c = 2</code></li>
+            <li><strong>Axes &amp; ticks:</strong> <code>axes: t [0, 5], y [-1, 3]</code> (omit brackets for automatic range), <code>tick-x: pi:"\pi", 2pi</code>, <code>tick-y: ...</code></li>
+            <li><strong>Curves:</strong> <code>curve: \frac{\sin x}{x} | form=y | dashed | domain=[0, 2pi] | ends=[closed, open] | label="f(x)" | guides</code>; supports <code>form=polar|parametric|implicit|x</code> and <code>\begin{cases}...\end{cases}</code></li>
+            <li><strong>Shading &amp; Riemann:</strong> <code>shade: \sqrt{x} .. x^2 | on=intersections | slice=0.55:"\Delta x" | riemann=6:midpoint | area</code>; complex ROC: <code>roc: Re(s) &gt; -2</code></li>
+            <li><strong>Fields &amp; flows:</strong> <code>field: slope t - y | field | isoclines</code> or <code>field: vector y ; -2x - 3y | field | equilibria | nullclines | eigenvectors</code>; <code>flow: [2, 0] | forward</code></li>
+            <li><strong>Marks:</strong> <code>point: [c, 1] | open | label="..." | pos=above</code>, <code>pole: [-2, 2]</code>, <code>zero: [-1, 0]</code>, <code>impulse: 2 | size=1</code>, <code>arrow: [0,0] -&gt; [2,0] | dashed</code>, <code>sign: [-inf, 1]:-</code>, <code>interval: (1, 4]</code></li>
+            <li><strong>Diagrams (<code>scene: diagram</code>):</strong> <code>node: g = box("G(s)") @ (1, 0)</code> (shapes: <code>box</code>, <code>circle</code>, <code>sum</code>, <code>mass</code>, <code>wall</code>, <code>tank</code>, <code>ground</code>, <code>point</code>), <code>edge: r -&gt; g | arrow | label="E(s)"</code> (styles: <code>arrow</code>, <code>line</code>, <code>dashed</code>, <code>spring</code>, <code>damper</code>)</li>
           </ul>
         </details>
         <details>
-          <summary>Graph fields</summary>
+          <summary>Legacy JSON (v1) fields</summary>
           <ul>
-            <li><code>curves</code>: <code>{"expr": …, "label": …, "style": "solid" | "dashed" | "dotted"}</code> or <code>{"pieces": [{"expr": …, "on": [a, b], "ends": ["closed", "open"]}]}</code></li>
-            <li><code>impulses</code>: <code>{"at": x, "size": 1, "label": "δ(t − 2)"}</code>; points <code>"on": {"curve": 1, "at": x}</code></li>
-          </ul>
-        </details>
-        <details>
-          <summary>Region fields</summary>
-          <ul>
-            <li>Vertical slices: <code>top</code>, <code>bottom</code> (default <code>0</code>), as expressions in x. Horizontal slices: <code>right</code>, <code>left</code> (default <code>0</code>) in y, or set <code>"dir": "dy"</code>.</li>
-            <li>A boundary may be <code>{"expr": …, "label": "y = √x"}</code>.</li>
-            <li><code>between</code>: <code>[a, b]</code>, or <code>"intersections"</code> (default)</li>
-            <li><code>slice</code>: <code>{"at": 0.5, "label": "Δx", "width": 0.05}</code>; <code>markIntersections</code>: <code>true</code>; <code>area</code>: <code>true</code> puts the area in the alt text</li>
-            <li>Points <code>"on": {"curve": "top", "at": x}</code></li>
-          </ul>
-        </details>
-        <details>
-          <summary>Phase-plane fields</summary>
-          <ul>
-            <li><code>system</code>: <code>{"x": "y", "y": "-2x - 3y"}</code>, keyed by the axis variables (no <code>t</code>), or <code>A</code>: <code>[[0, 1], [-2, -3]]</code></li>
-            <li><code>vars</code>: <code>["x", "y"]</code> when the axis labels aren’t single letters; one-character labels such as θ are used in the text</li>
-            <li><code>show</code>: any of <code>"field"</code>, <code>"equilibria"</code> (default: these two), <code>"nullclines"</code>, <code>"eigenvectors"</code></li>
-            <li><code>trajectories</code>: <code>{"start": [x, y], "direction": "both" | "forward" | "backward", "label": …}</code></li>
-            <li><code>labelEquilibria</code>: <code>true</code> writes their coordinates; <code>window</code> may be left out (centred on the equilibria, nearly equal scales)</li>
+            <li><code>kind</code>: <code>"graph"</code>, <code>"region"</code>, <code>"phase"</code>, <code>"slope"</code>, or <code>"line"</code>; <code>from</code>: the equation on the page (required)</li>
+            <li><code>window</code>: <code>{"x": [a, b], "y": [c, d]}</code>; <code>axes</code>: <code>{"x": "t", "y": "y"}</code>; <code>points</code>, <code>labels</code>, <code>ticks</code></li>
+            <li><code>curves</code>, <code>impulses</code> (graph); <code>top</code>, <code>bottom</code>, <code>right</code>, <code>left</code>, <code>between</code>, <code>slice</code>, <code>markIntersections</code>, <code>area</code> (region)</li>
+            <li><code>system</code> or <code>A</code>, <code>vars</code>, <code>show</code>, <code>trajectories</code>, <code>labelEquilibria</code> (phase); <code>slope</code>, <code>solutions</code> (slope); <code>intervals</code>, <code>signs</code>, <code>poles</code>, <code>zeros</code>, <code>roc</code> (line)</li>
           </ul>
         </details>
       </section>

@@ -31,27 +31,28 @@ export const TRANSCRIBE_SYSTEM = `You are an exact transcriber of handwritten ma
  * [[note: term | words]] lines; the app writes the sentence ("where ω is the
  * frequency") in code, so the wording is always consistent.
  */
-export const TRANSCRIBE_USER = `Transcribe this page of handwritten notes into Markdown with LaTeX math.
+export const TRANSCRIBE_USER = `Transcribe this page of handwritten notes into Markdown with LaTeX math. Output raw Markdown/LaTeX only (no code fences, no HTML tables).
 
-Most important: EVERY piece of math is LaTeX inside dollar signs, even a single letter or a short formula in the middle of a sentence. Never write math as plain text.
+Most important: EVERY piece of math is LaTeX inside $...$ or $$...$$ ONLY (never \\(...\\) or \\[...\\]). Never write math as plain text.
 - Inside a sentence: $u'(0) = 0$, $m$, $\\cos(7t)$
 - An equation on its own line: $$u(t) = R\\cos(7t - \\delta)$$
-- Several equation lines in a row: $$\\begin{aligned} ... \\\\ ... \\end{aligned}$$
+- Aligned multi-line work: $$\\begin{aligned} a &= b \\\\ &= c \\end{aligned}$$
+- Stacked fractions as \\frac{a}{b}; piecewise braces as \\begin{cases} ... \\end{cases}; vectors/matrices as \\begin{pmatrix} or \\begin{bmatrix}; limits on \\int, \\sum, \\lim.
 - Greek letters as LaTeX: \\omega, \\delta, \\pi (not ω, δ, π). Functions and operators with a backslash: \\sin, \\cos, \\tan, \\log, \\ln, \\sqrt{...}, \\times, \\cdot.
 
 Other rules:
-1. Copy everything exactly as written, top to bottom: the author's wording, spelling mistakes included. Never add a line, formula, note, box, or color that is not on the page.
-2. Sentences are plain text lines, never inside $...$ or \\text{}. Titles or underlined headings: ## . Leave a blank line between separate ideas.
+1. Copy everything exactly as written, top to bottom: keep the author's wording (spelling mistakes included) and notation ($y'$, subscripts $x_n$ vs powers $x^n$, telling $t$/$+$, $1$/$l$, $u$/$v$ apart). Never invent text or fix mistakes.
+2. Sentences are plain text lines, never inside $...$ or \\text{}. Titles or underlined headings: ## . Keep bulleted (- ) or numbered (1. ) lists, and pipe tables (| a | b |) only when a table is drawn. Leave a blank line between separate ideas.
 3. Arrows and braces that attach a note to part of an equation: write the equation WITHOUT the arrow or brace. Then, on the next lines, one line per arrow or brace:
    [[note: term | note]]
    "term" is the exact part of the equation the arrow or brace points at, in LaTeX. "note" is what the author wrote at the other end, copied exactly (words, or LaTeX if it is math).
-   - An arrow from the word "frequency" pointing at ω: [[note: \\omega | frequency]]
+   - An arrow from "frequency" pointing at ω: [[note: \\omega | frequency]]
    - A brace under cos(-δ) with cos(δ) written under it: [[note: \\cos(-\\delta) | \\cos(\\delta)]]
    - A note in a different ink color: [[note red: term | note]]
 4. Copy these only where the author drew them: a box around a formula or result: \\boxed{...}. A column of dots for skipped steps: its own line $$\\vdots$$
 5. Underlined words: <u>words</u>. Words in a different ink color: [[red: words]] (or green, orange, purple, blue).
-6. Every drawing (graph, diagram, sketch) gets its own line, without transcribing the drawing: [[FIGURE: short plain-words description of the drawing only]].
-   Writing next to, below, or above a drawing (sentences, formulas, explanations) is NOT part of the drawing. Never put it in the FIGURE description. Transcribe it as normal notes on the lines right after the [[FIGURE: ...]] line. Only labels on the drawing itself (axis names, points like a and b) belong in the description.
+6. Every drawing (graph, diagram, sketch) gets its own line, without transcribing the drawing: [[FIGURE: one plain-words sentence naming the drawing type, axes or labels, and curve or shape]] (no LaTeX or quotes inside).
+   Writing next to, below, or above a drawing (sentences, formulas, explanations) is NOT part of the drawing. Never put it in the FIGURE description. Transcribe it as normal notes on the lines right after the [[FIGURE: ...]] line. Only labels on the drawing itself belong in the description.
    A circle, box, or bracket drawn around words is NOT a drawing: transcribe the words and ignore the mark.
 7. Write [illegible] for anything you cannot read. Skip crossed-out work.
 
@@ -151,7 +152,7 @@ export const BUILTIN_PROMPTS: Record<BuiltinPromptId, BuiltinPrompt> = {
   everyday: {
     id: 'everyday',
     label: 'Everyday hardware',
-    hint: 'Short and concrete, for small models on an ordinary laptop (qwen3.5:4b-mlx, qwen3-vl:4b-instruct, qwen2.5vl:3b). The default.',
+    hint: 'Short and concrete for 2B–5B vision models, with tuning for qwen3.5:4b-mlx, LightOnOCR-3, ministral-3:3b, qwen3.5:2b-mlx, and gemma4:e2b-it-qat. The default.',
     text: TRANSCRIBE_USER,
   },
   large: {
@@ -192,11 +193,11 @@ export function promptSizeHint(id: BuiltinPromptId, sizeGB: number | undefined):
 }
 
 /** Focused second-pass prompt for a user-selected region (2.0). */
-export const REREAD_USER = `Transcribe only the handwriting visible in this cropped image into Markdown with LaTeX math.
+export const REREAD_USER = `Transcribe only the handwriting visible in this cropped image into Markdown with LaTeX math (no code fences).
 Copy exactly what is visible. Do not solve, explain, correct, complete, or infer anything outside the crop.
-Every piece of math must be LaTeX inside dollar signs. Use $...$ inside a sentence and $$...$$ for an equation on its own line.
+Every piece of math must be LaTeX inside $...$ or $$...$$ ONLY (never \\(...\\) or \\[...\\]). Use \\frac{a}{b}, \\begin{aligned}, \\begin{cases}, and backslash functions (\\sin, \\cos, \\ln, \\sqrt) as written.
 Preserve line breaks and wording. Write [illegible] for anything you cannot read. Skip crossed-out work.
-Do not create a FIGURE description. If the crop includes part of a drawing, transcribe only the writing that the user could use to replace the selected text block.
+Do not create a FIGURE description. If the crop includes part of a drawing, transcribe only the writing that replaces the selected block.
 Output only the transcription.`;
 
 /** A built-in transcription prompt (kept as a function so callers don't depend on the constants). */
@@ -207,13 +208,13 @@ export function transcribePrompt(id: BuiltinPromptId = 'everyday'): string {
 export function locatePrompt(descriptions: string[]): string {
   const list = descriptions.map((d, i) => `${i + 1}. ${d}`).join('\n');
   return `This 1000x1000 image is a page of handwritten notes (white padding may be on the right or bottom).
-Find each hand-drawn figure listed below. For each, give the bounding box that encloses the WHOLE drawing, including its axes, tick labels, and labels written on the drawing. Do NOT include sentences, notes, or equations written beside the drawing; box the drawing only.
+Find each hand-drawn figure listed below. Enclose the WHOLE drawing (axes, tick labels, curve labels), and do NOT include sentences or equations written beside it.
 
 Figures:
 ${list}
 
-Answer in JSON: {"figures":[{"id":1,"bbox_2d":[x1,y1,x2,y2]}]}
-Coordinates are pixels in this 1000x1000 image: x1,y1 = top-left corner, x2,y2 = bottom-right corner.`;
+Answer with JSON only: {"figures":[{"id":1,"bbox_2d":[x1,y1,x2,y2]}]}
+Order is horizontal x first, vertical y second, integer pixels 0..1000: x1,y1 = top-left corner, x2,y2 = bottom-right corner.`;
 }
 
 /** JSON schema for Ollama structured output in the locate pass. */
@@ -237,8 +238,8 @@ export const LOCATE_SCHEMA = {
 
 /** Alt text for a drawing found by the ink detector. */
 export const DESCRIBE_USER = `This image is a hand-drawn figure cut from a page of math notes.
-Describe it in one sentence for a blind student: what kind of drawing it is, what it shows, and the labels written on it.
-Use plain words, no LaTeX. Output only the sentence.`;
+Describe it in one short plain-words sentence (under 30 words) for a blind student: what kind of drawing it is, what it shows, and the labels written on it.
+No LaTeX, no quotation marks, no "Alt text:" prefix. Output only the sentence.`;
 
 /* ---------------------------------------------------------------------------------
  * Custom prompt (1.9.5): checks that an edited prompt still asks for the formats

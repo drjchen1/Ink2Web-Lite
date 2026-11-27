@@ -1,173 +1,152 @@
-# Redraw: figures recreated from their mathematics (developer preview)
+# Redraw Engine & Line-DSL Reference (Clean-Slate v2, v3.4.0)
 
-**Status:** in the app since 2.2.0. Three figure kinds: *graph of a stated function*, *region between curves*, and *phase plane*. In the figure panel, the model (or the user) writes a spec, and the user chooses Image / Redrawn / Both, with Image the default. The figure lab remains as a developer tool.
+Hand-drawn figures whose meaning lies in their mathematics (function graphs, piecewise step plots, shaded integrals, Riemann sums, slope fields, phase planes, sign charts, complex $s$-plane pole-zero plots, and block/spring schematics) can be redrawn cleanly from their mathematical specification — while always preserving the cropped original sketch as an instant fallback (**Image · Redrawn · Both**).
 
-## The idea
+**Developer Playground:** Start `npm run dev` and open **<http://localhost:5173/figure-lab.html>** to test **Line-DSL (v2)** and **Legacy JSON (v1)** specs with live SVG preview, computed facts, and accessible alt text. (`figure-lab.html` is a development tool only and is not bundled in `dist/`.)
 
-A hand-drawn figure whose details carry meaning is redrawn from the math it shows, not traced from the ink. The work is split the same way as for text:
+---
 
-- **The model (later) or you (now)** writes a small JSON *spec*: the equation on the page, the window, which curves and points were drawn, and the labels.
-- **The code** computes everything else (curves, jumps, asymptotes, intersections, areas), draws the SVG, and writes the alt text from computed facts.
+## Architecture Overview (6 Pillars)
 
-The result is **idealized**. The redraw follows the equation, not the sketch, while the teaching choices (window, which points are marked, where a slice sits) come from the sketch. If there is no equation on the page, there is no redraw: `from` is required.
+The Clean-Slate Redraw v2 engine lives in `src/lib/redraw/v2/` and feeds directly into `redraw()` (`src/lib/redraw/index.ts`) and `redrawFigure()` (`src/lib/pipeline.ts`):
 
-## Try it
+1. **Pre-Model Ink CV (`sketchCv.ts` — `analyzeSketch`)**
+   - Analyzes the figure crop's binary ink mask *before* calling the vision model: frame type (`axes-2d`, `line-1d`, `diagram`, `freeform`), detected axis positions & origin placement, quadrant ink density `[Q1, Q2, Q3, Q4]`, aspect ratio, and stroke group count.
+   - Injects a compact geometry hint into the prompt so 3B–4B models ground signs, quadrants, and windows reliably.
+2. **Equation Menu Grounding (`eqMenu.ts` — `extractEquationMenu`, `expandEqRefs`)**
+   - Scans surrounding notes around `>>> THIS FIGURE <<<` for display (`$$...$$`) and inline (`$...$`) equations, assigns `@eq1`, `@eq2`, … tokens, and expands references before parsing so small models do not have to re-transcribe complex fractions from pixels.
+3. **Composable Scene AST + Compact Line-DSL (`scene.ts` — `parseSceneDsl`, `formatSceneDsl`, `upgradeV1ToScene`)**
+   - Unifies cartesian, polar, complex $s$-plane, 1D number lines/sign charts, and schematic block diagrams into typed `PlotScene` (composable `curve`, `shade`, `field`, `flow`, `mark` layers) and `DiagramScene` (`node`, `edge`) ASTs.
+   - Accepts concise `key: value | option` Line-DSL (ideal for small models and fast hand edits) as well as JSON `SceneSpec` objects and legacy v1 specs.
+   - Explicit opt-out: `scene: image` keeps the cropped sketch untouched (`status: 'none'`).
+4. **Native LaTeX & Piecewise Compiler (`latexExpr.ts`)**
+   - Parses real LaTeX (`\frac`, `\dfrac`, `\tfrac`, `\sqrt`, `\sin^2 t`, `\tan^{-1}`, `|x|`, `u_c(t)`, `H_c(t)`, Greek symbols, and `\begin{cases}...\end{cases}`) alongside calculator syntax into AST closures — **zero `eval()` or `new Function()`**.
+   - `evalBound()` resolves constants and symbolic bounds (`pi/2`, `\frac{\pi}{2}`, `2e`, `c`, `-inf`, `inf`) for windows, domains, ticks, and marks.
+5. **Closed-Loop Bidirectional Ink Verification (`sketchCv.ts` — `verifySceneAgainstInk`, `converseV2.ts`)**
+   - `runRedrawV2Conversation()` parses, evaluates, and runs bidirectional origin-anchored Chamfer distance scoring (`forwardCoverage` + `reverseCoverage`) between rendered curve polylines and the hand-drawn ink.
+   - On syntax, evaluation, or ink-mismatch diagnostics, sends one structured repair turn and keeps the higher-scoring answer.
+   - **Per-task thinking coordination (`resolveTaskThink` in `src/lib/model.ts`):** keeps Round 1 automatic redraws fast (`think: false`), enables `think: true` on thinking-capable ≥4B models (`qwen3.5:4b-mlx`, 8B+ models) for Round 2 repair diagnostics and manual **Redraw with the model** calls, and keeps `think: false` on ≤3B edge fallback models.
+   - `convertPage()` gates default document visibility by confidence:
+     - **`high`**: shows `Redrawn`
+     - **`medium`**: shows `Both` + sets `redrawCheck` review warning
+     - **`low`**: keeps `Image` + sets `redrawCheck` review warning
+6. **Pure-SVG Math Typesetter & Renderer (`mathSvg.ts`, `evaluate.ts`, `describeScene.ts`, `render.ts`)**
+   - `measureAndRenderMath()` builds `MathBox` layouts in pure TypeScript (zero DOM, identical in Node tests and browsers) for stacked fractions, square roots, superscripts/subscripts, calligraphic `\mathcal{L}`, Greek letters, and upright function names.
+   - `renderSceneSvg()` draws with Okabe–Ito colorblind-safe strokes paired with dash patterns, expanded `<clipPath>` rects and negative axis overhangs (so origin jumps/dots never clip), occupancy-grid label placement with leader-line fallback, and strictly self-closing SVG shapes (`/>`).
+   - `describeScene()` computes `alt.short`, `alt.long` (zeros, extrema, jumps, asymptotes, undefined gaps, area, equilibria & eigenvalues, trajectory behavior, diagram topology), and MathJax `alt.markdown`.
 
+---
+
+## Line-DSL Specification
+
+Blank lines and `#` / `//` comments are ignored. Pipe segments (`|`) separate options on any layer line. Quotes (`"..."`) preserve spaces or colons inside labels. Multiline `\begin{cases}...\end{cases}` or braced TeX blocks are joined automatically.
+
+### Scene Headers
+
+| Directive | Description | Example |
+|---|---|---|
+| `scene:` | `plot` (default), `diagram`, or `image` (keeps original crop) | `scene: diagram` |
+| `from:` | Source equation or title from notes (**required** on `plot`) | `from: y = u_c(t)(t - c)` or `from: @eq1` |
+| `space:` | `cartesian` (default), `polar`, `complex`, or `1d` | `space: complex` |
+| `schematic:` | `true` for qualitative curves without explicit formulas (hides misleading ticks, skips curve ink check) | `schematic: true` |
+| `param:` | One or more numeric parameters usable in expressions, domains, bounds, and ticks | `param: c = 2, a = 0.5` |
+| `axes:` | Axis labels and optional `[min, max]` windows (`x` only for `1d`) | `axes: t [0, 5], y [-0.5, 3]` |
+| `tick-x:`, `tick-y:` | Custom ticks with optional quoted labels | `tick-x: c:"c", pi:"\pi", 2pi` |
+
+### Plot Layers (`scene: plot`)
+
+#### `curve:`
+```text
+curve: <expr> [; <exprY>] [| form=y|x|polar|parametric|implicit|cases] [| solid|dashed|dotted] [| domain=[a, b]] [| ends=[open|closed|none, ...]] [| label="..."] [| guides]
 ```
-npm run dev
+- Supports `\begin{cases} ... \end{cases}` directly inside `curve:` (automatically creates intervals and open/closed endpoint markers from `<`, `<=`, `>`, `>=`, `otherwise`).
+- `guides` draws vertical dashed jump guides at piecewise discontinuities.
+- Examples:
+  - `curve: \frac{\sin^2 t}{\sqrt{t + 1}} | domain=[0, 2pi] | label="f(t)"`
+  - `curve: 2\cos(2\theta) | form=polar | domain=[0, 2pi]`
+  - `curve: \cos t; \sin t | form=parametric | domain=[0, 2pi]`
+  - `curve: x^2 + y^2 - 4 | form=implicit`
+
+#### `shade:` and `roc:`
+```text
+shade: <topExpr> [.. <bottomExpr>] [| axis=x|y] [| on=intersections|[a, b]] [| slice=at:"label"] [| riemann=n:left|right|midpoint|trapezoid] [| area] [| label="..."]
+roc: Re(s) > -2 [, Re(s) < 1]
 ```
+- Computes adaptive Simpson areas, exact intersection points (`findMeets`), curve swaps if crossing occurs inside `[a, b]`, representative integration slices, and Riemann sum rectangles/trapezoids.
+- `roc:` shades left/right complex half-planes on `space: complex` $s$-plane plots.
 
-Open <http://localhost:5173/figure-lab.html>. Pick one of the sixteen examples or write your own spec. The figure, its alt text, and the computed facts update as you type, and your own spec is remembered in the browser. The lab is a development page only and is not part of `npm run build`.
-
-## Shared fields
-
-| Field | Meaning |
-|---|---|
-| `kind` | `"graph"`, `"region"`, or `"phase"` |
-| `from` | The equation as transcribed on the page (required). |
-| `window` | `{ "x": [a, b], "y": [c, d] }`. Graphs need `x`; anything left out is automatic. |
-| `axes` | Axis labels. A one-letter label on the independent axis is also the variable; otherwise set `var`. |
-| `points` | `{ at: [x, y] }`, or `{ on: { curve, at } }` to have the other coordinate computed. Optional `label`, `fill` (`closed`/`open`), `pos` (`above`/`below`/`left`/`right`); without `pos`, the clearest spot is chosen. |
-| `labels`, `ticks` | Free text at a point; custom ticks such as `{ "at": 3.14159265, "label": "π" }`. |
-
-**Expressions** use calculator syntax:
-
-- Operators and implicit multiplication: `exp(-t)*cos(3t)`, `2t^2`, `(t+1)(t-1)`, `u(t-2)`, `sqrt(1-x^2)`, `pi`, `min(a, b)`. `^` binds tighter than unary minus, so `-t^2` means −(t²).
-- Functions need parentheses, and `log` is the natural log. `u` and `H` are the unit step, equal to 1 at 0.
-- Scientific notation is rejected so that `2e-3` can't be misread as 2e − 3.
-- **Number fields** (`window`, `between`, `at`, `start`, `on`, `size`, `width`, `A`, `ticks`) also accept constants as strings: `"pi/2"`, `"-2pi"`, `"e"`, `"sqrt(2)"` (2.2.2). They are converted before the checks, so π is recognized exactly. Each run of letters must be one name, so `"pie"` is an error rather than π·e. The words `"auto"` and `"intersections"` stay words. Ticks given without a label are labeled exactly (π/2, 2π, e).
-- Expressions are parsed into a tree and evaluated with closures. `eval` is never used.
-
-## Kind "graph"
-
-```json
-{
-  "kind": "graph",
-  "from": "u(t) = e^{-t/2}\\cos(3t)",
-  "window": { "x": [0, 8], "y": [-1.1, 1.1] },
-  "axes": { "x": "t", "y": "u" },
-  "curves": [
-    { "expr": "exp(-t/2)*cos(3t)", "label": "u(t)" },
-    { "expr": "exp(-t/2)", "style": "dashed" }
-  ],
-  "points": [{ "on": { "curve": 1, "at": 0 }, "label": "u(0) = 1", "pos": "right" }]
-}
+#### `field:` and `flow:`
+```text
+field: slope <dy/dt> [| vars=[t, y]] [| field | isoclines]
+field: vector <dx/dt> ; <dy/dt> [| vars=[x, y]] [| field | equilibria | nullclines | eigenvectors]
+flow: [x0, y0] [| both|forward|backward] [| label="..."]
 ```
+- `field` vectors compute fixed-point equilibria via Newton iteration, classify Jacobian eigenvalues (node, saddle, spiral, center, degenerate, focus/stability), contour nullclines/zero-isoclines, and integrate `flow:` trajectories via adaptive step-size RK4.
+- If state variable letters match axis names (e.g. `axes: u, v`), `vars=` is inferred automatically; set `vars=[x, y]` explicitly when axis labels differ from equation variables (e.g. `axes: θ, ω` with `vars=[x, y]`).
 
-- `curves`: `{ expr, label?, style? }` (`solid`, `dashed`, or `dotted`), or `{ pieces: [{ expr, on: [a, b], ends: [closed/open, closed/open] }] }`.
-- `impulses`: `{ at, size?, label? }`, drawn as arrows.
-- `points` with `on: { curve: 1, at: x }`: at a jump, `fill` chooses the side.
+#### Marks (`point:`, `pole:`, `zero:`, `impulse:`, `arrow:`, `projection:`, `sign:`, `interval:`, `label:`)
+- `point: [x, y] | closed|open | label="..." | pos=above|below|left|right`
+- `pole: [re, im]` / `zero: [re, im]` *(auto-switches `space: complex` if unset)*
+- `impulse: t_at | size=1 | label="\delta(t - 2)"`
+- `arrow: [x0, y0] -> [x1, y1] | solid|dashed|dotted | label="..."`
+- `projection: [x, y]` *(dashed perpendicular guides from `(x, y)` to both axes)*
+- `sign: [a, b]:+|-|0|undef` *(1D sign chart region above axis)*
+- `interval: (a, b] | label="..."` *(1D highlighted open/closed interval)*
+- `label: [x, y] | "text"`
 
-**Computed:**
-- jumps, located to machine precision
-- vertical asymptotes, including poles that land on a sample point (1/x) and slowly diverging ones (ln|x|)
-- where the function is undefined
-- zeros and turning points, by bisection on *f* and *f′*
-- constant stretches ("stays at 0 for t from 0 to 2")
-- decaying or growing oscillation
+### Diagram Scenes (`scene: diagram`)
 
-## Kind "region"
+Used for non-coordinate engineering/math schematics (feedback control loops, spring-mass-damper systems, tanks, free-body schematics):
 
-```json
-{
-  "kind": "region",
-  "from": "A = \\int_0^1 (\\sqrt{x} - x^2)\\,dx",
-  "top": { "expr": "sqrt(x)", "label": "y = √x" },
-  "bottom": "x^2",
-  "between": "intersections",
-  "slice": { "at": 0.55, "label": "Δx" },
-  "markIntersections": true
-}
-```
-
-| Field | Meaning |
-|---|---|
-| `top`, `bottom` | Vertical slices (`dir: "dx"`, the default): expressions in x. `bottom` defaults to `0`, the axis. |
-| `right`, `left` | Horizontal slices (`dir: "dy"`): x = g(y). `left` defaults to `0`. Using only these implies `"dy"`. |
-| `between` | `[a, b]`, or `"intersections"` (the default): the first and last places the boundaries meet, searched over the window, or −10 to 10. |
-| `slice` | `{ at, label?, width? }`: the representative strip. |
-| `markIntersections` | Dots with exact coordinates at every meeting point. |
-| `area` | `true` puts the computed area in the alt text. Off by default, so a worksheet figure doesn't give the answer away. The lab always shows it. |
-| `points` | `on: { curve: "top", at: x }` (or `bottom`, `left`, `right`). |
-
-**Computed:**
-- **Meeting points**, including touching ones such as $(x-1)^2 = 0$. Poles such as tan's are not counted as meeting points.
-- **Crossings inside the region.** The region stays between the curves, and the alt text says which curve is on top on each side of the crossing.
-- **Area** by adaptive Simpson, one integral per part, accurate to about 1e-10, so 1/3, 14/3 and π/2 are recognized.
-- **Straight sides** where numeric bounds close the region.
-- **Orientation check:** boundaries written the wrong way round are swapped, with a warning.
-- **Rejected specs:** a boundary that is undefined, or has an asymptote, inside the region is an error.
-
-Example alt text: *"The shaded region lies between y = x and y = x^3, for x from −1 to 1. The curves cross at x = 0, so the upper curve changes: y = x^3 is on top for −1 < x < 0 and y = x for 0 < x < 1. The curves meet at (−1, −1), (0, 0), and (1, 1)."*
-
-Numbers in the alt text are written exactly when they are almost certainly exact (2, 0.5, π/6, 1/3) and as "≈0.368" otherwise.
-
-## Kind "phase"
-
-```json
-{
-  "kind": "phase",
-  "from": "x' = y, \\; y' = -2x - 3y",
-  "A": [[0, 1], [-2, -3]],
-  "window": { "x": [-3, 3], "y": [-3, 3] },
-  "show": ["field", "equilibria", "eigenvectors"],
-  "trajectories": [{ "start": [2.5, 0] }, { "start": [-2.5, 0.5] }]
-}
+```text
+scene: diagram
+from: Feedback control loop H(s)
+node: r = point("R(s)") @ (0, 0)
+node: s = sum("+") @ (1, 0)
+node: g = box("G(s)") @ (2, 0)
+node: y = point("Y(s)") @ (3, 0)
+node: h = box("H(s)") @ (2, 1)
+edge: r -> s | arrow
+edge: s -> g | arrow | label="E(s)"
+edge: g -> y | arrow
+edge: y -> h | arrow
+edge: h -> s | arrow | label="-"
 ```
 
-| Field | Meaning |
-|---|---|
-| `system` | `{ "x": "y", "y": "-2x - 3y" }`, keyed by the axis variables. The system must be autonomous (no `t`). |
-| `A` | A 2×2 matrix instead of `system`, for x′ = A**x**. |
-| `vars` | The state variables when the axis labels aren't single letters. One-character labels such as θ and ω are used in the alt text. |
-| `show` | Any of `field`, `equilibria` (default: these two), `nullclines`, `eigenvectors`. |
-| `trajectories` | `{ start: [x, y], direction?, label? }`, where `direction` is `both` (default), `forward`, or `backward`. |
-| `labelEquilibria` | `true` writes the coordinates beside each equilibrium. |
-| `window` | Optional: by default, centred on the equilibria with nearly equal scales, so circles look round. |
+- **Node shapes:** `box`, `circle`, `sum`, `mass`, `wall`, `tank`, `ground`, `point` positioned on logical integer grid coordinates `@ (col, row)`.
+- **Edge styles:** `arrow`, `line`, `dashed`, `spring`, `damper`, with optional `label="..."` and `bend=offset`.
 
-**Computed:**
-- **Equilibria:** found by Newton's method from a grid of seeds, and written exactly where possible, such as (π, 0).
-- **Types:** from the Jacobian's eigenvalues: node, saddle, spiral, center, star, degenerate node, each stable or unstable. Spirals and centers also get their direction of rotation.
-- **Eigenvalues:** written exactly when possible: −2 and −1, −0.5 ± 2i, (−1 ± √13)/2, ±i√3.
-- **Nonlinear centers** are reported as centers *of the linearization*, because the linearization can't decide those. A zero eigenvalue is reported as degenerate.
-- **Eigenvectors:** drawn as dashed lines and described as lines through the equilibrium. For a saddle, the alt text says which line attracts and which repels. For a node, it gives the slow direction trajectories come in tangent to.
-- **Nullclines:** found by contouring, with points located exactly on each grid edge. When a nullcline is made of straight lines, they are named: "the lines x = 0 and y = −x + 1". Poles are not mistaken for zeros.
-- **Trajectories:** integrated with RK4 in steps of fixed length on screen. Each one ends when it leaves the window (the alt text says across which edge), reaches an equilibrium, closes up, or keeps circling without settling (a limit cycle). Arrowheads show the direction of motion and are kept off the axes.
-- **Dots:** equilibria are filled when stable and open when unstable, and the alt text says so.
-- **Rejected:** a linear system with a whole line of equilibria (singular matrix) is rejected, so that figure keeps its cropped image. Singular systems with *no* equilibria are fine.
+---
 
-Example alt text: *"Four equilibria: (0, 0), an unstable node (eigenvalues 0.75 and 1); (0, 0.75), a saddle (eigenvalues −0.75 and 0.25); (0.5, 0.5), a stable node (eigenvalues ≈−0.854 and ≈−0.146); (1, 0), a saddle (eigenvalues −1 and 0.25). … The x-nullcline (where x′ = 0, dashed) is the lines x = 0 and y = −x + 1."*
+## Native LaTeX & Expression Compiler Rules
 
-## Drawing
+- Accepts LaTeX (`\frac`, `\dfrac`, `\tfrac`, `\sqrt[n]{...}`, `\sin^2 t`, `\tan^{-1}(x)`, `|x|`, `\pi`, `\theta`, `\omega`, `u_c(t)`, `H_c(t)`, implicit multiplication like `2t^2` or `(t+1)(t-1)`), as well as standard calculator notation (`exp(-t)*cos(3*t)`, `sqrt(x)`, `ln(x)`, `abs(x)`).
+- Precedence matches mathematical convention (`^` binds tighter than unary `-`, so `-t^2` means `-(t^2)`).
+- Rejects scientific `e` shorthand (`2e-3`) so Euler's constant `e` in `2e - 3` or `e^(-t)` is never ambiguous.
+- Bounds and ticks accept expressions/constants (`"pi/2"`, `"-2pi"`, `"\frac{\pi}{4}"`, `"-inf"`, `"inf"`).
 
-Every kind becomes a *plot* (fills, curves, straight edges, strips, guides, impulses, field arrows, arrowheads, points, labels) and is drawn by one renderer. The SVG is 480 × 320, self-contained, and print-friendly. It uses Okabe–Ito colors plus dash patterns, so nothing depends on color alone. Labels are placed away from other ink: curve labels along their curve, dot labels at the clearest of several spots, and strip labels on the axis as in textbooks. Tick labels give way to all of them. It is accessible: `role="img"` with `<title>` (short alt) and `<desc>` (long alt).
+---
 
-## Files
+## Backwards Compatibility (Legacy v1 JSON)
 
-- `src/lib/redraw/`
-  - `common.ts`: shared fields
-  - `spec.ts`: checks, dispatch, graph
-  - `region.ts`: region
-  - `phase.ts`: phase plane
-  - `expr.ts`: expressions
-  - `nice.ts`: numbers
-  - `sample.ts`: sampling
-  - `analyze.ts`: graph facts
-  - `describe.ts`: graph alt text
-  - `svg.ts`: drawing
-  - `index.ts`: `redraw(spec, { id })`
-  - `examples.ts`: examples
-- `figure-lab.html`, `src/figure-lab.ts`: the lab
-- `tests/redraw.test.ts`
+All v1 JSON specs (`"kind": "graph" | "region" | "phase" | "slope" | "line"`) continue to validate and render through `redraw()`, preserving existing saved `.ink2web.json` projects and regression suites (`tests/redraw.test.ts`, `tests/redrawApp.test.ts`).
 
-## In the app (2.2.0)
+- `upgradeV1ToScene(spec)` losslessly converts any v1 spec object into an equivalent v2 `PlotScene`.
+- Inside `RedrawSection.tsx`, opening a legacy JSON figure enables **Upgrade to Line-DSL** or automatically edits via two-way **Scene & layer controls**.
 
-- **Redraw pass:** `redrawFigure` (pipeline.ts) sends the figure's crop and the notes around its marker (`notesAround`, mostly before the figure). The answer is constrained by `REDRAW_SCHEMA`, a flat object with every kind's fields optional, which small grammar-constrained models handle better than a union. The tidy-up drops empty and unrelated fields, strips "y =" and stray LaTeX from expressions, and accepts a phase system written in the author's letters. A spec that fails the checks goes back to the model once with its problems listed, and the better answer is kept (`specConversation`, conversation.ts).
-- **Figures:** `Figure.redraw = { spec, show }`. Only the spec text is stored. The SVG and alt text are regenerated through a small cache (`figureRedraw.ts`), so engine improvements reach existing figures and a broken spec falls back to the image. Element ids are rewritten per figure (`placeSvg`), so two redrawn figures on a page never share ids.
-- **Export:** *Redrawn* is the inline SVG with `<title>`/`<desc>`. *Both* adds the original image in a collapsed `<details>` with its own alt text.
-- **Checklist:** a chosen redraw with errors is reported. A figure shown only as a redraw needs no hand-written alt text.
+---
 
-## Next
+## Module Map & Tests
 
-1. **Ink check:** compare the drawn ink with the computed curves and flag mismatches with "Check equation".
-2. More kinds, if real notes call for them (number lines and sign charts, direction fields for y′ = f(t, y)).
+- **v2 Core (`src/lib/redraw/v2/`):**
+  - `latexExpr.ts` — LaTeX preprocessor, closure compiler, `evalBound`, `parseCasesExpr`
+  - `eqMenu.ts` — `@eq1` equation menu extraction and expansion
+  - `mathSvg.ts` — Pure-SVG `MathBox` typesetter (`measureAndRenderMath`, `plainLabel`)
+  - `scene.ts` — `PlotScene` / `DiagramScene` AST, `parseSceneDsl`, `formatSceneDsl`, `upgradeV1ToScene`, `V2_TEMPLATES`
+  - `sketchCv.ts` — `analyzeSketch`, `formatSketchHint`, `verifySceneAgainstInk`
+  - `evaluate.ts` — `evaluateScene` geometry evaluator & analytical facts
+  - `describeScene.ts` — `describeScene` accessible alt/markdown generator
+  - `render.ts` — `renderSceneSvg` textbook SVG renderer
+  - `converseV2.ts` — `REDRAW_V2_SYSTEM`, `buildRedrawV2Prompt`, `runRedrawV2Conversation`
+- **Entry & Integration:** `src/lib/redraw/index.ts`, `src/lib/redraw/inkCheck.ts`, `src/lib/figureRedraw.ts`, `src/lib/pipeline.ts`, `src/components/RedrawSection.tsx`, `src/figure-lab.ts`, `figure-lab.html`
+- **Tests:** `tests/redrawV2.test.ts`, `tests/redraw.test.ts`, `tests/redrawApp.test.ts`, `tests/wave2.test.ts`, `tests/lesson29.test.ts`, `tests/everydayModels.test.ts` (run all via `npm test`).

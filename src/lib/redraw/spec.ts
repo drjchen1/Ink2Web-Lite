@@ -15,6 +15,7 @@
 import {
   COMMON_FIELDS,
   compileExpr,
+  extractPrelimParams,
   isNum,
   isObj,
   numbersFromConstants,
@@ -31,8 +32,10 @@ import {
 } from './common.ts';
 import { checkPhase, type PhaseSpec } from './phase.ts';
 import { cleanExpr } from './prompt.ts';
-import { fn1 } from './expr.ts';
+import { compile, parse, SCHEMATIC_FUNCS } from './expr.ts';
 import { checkRegion, type RegionSpec } from './region.ts';
+import { checkSlope, type SlopeSpec } from './slope.ts';
+import { checkLine, type LineSpec } from './line.ts';
 
 export interface Piece {
   expr: string;
@@ -63,9 +66,10 @@ export interface GraphSpec extends Common {
   window: { x: Range; y: Range | null };
   curves: Curve[];
   impulses: Impulse[];
+  jumpGuides: boolean;
 }
 
-export type Spec = GraphSpec | RegionSpec | PhaseSpec;
+export type Spec = GraphSpec | RegionSpec | PhaseSpec | SlopeSpec | LineSpec;
 
 export interface Checked {
   spec: Spec | null;
@@ -91,20 +95,23 @@ export function checkSpec(input: unknown): Checked {
     m.errors.push('The spec must be a JSON object { … }.');
     return fail();
   }
-  const obj = numbersFromConstants(raw, m) as Record<string, unknown>;
+  const prelimParams = extractPrelimParams(raw);
+  const obj = numbersFromConstants(raw, m, prelimParams) as Record<string, unknown>;
   if (m.errors.length) return fail();
   let spec: Spec | null;
   if (obj.kind === 'graph') spec = checkGraph(obj, m);
   else if (obj.kind === 'region') spec = checkRegion(obj, m);
   else if (obj.kind === 'phase') spec = checkPhase(obj, m);
+  else if (obj.kind === 'slope') spec = checkSlope(obj, m);
+  else if (obj.kind === 'line') spec = checkLine(obj, m);
   else {
-    m.errors.push('kind must be "graph", "region", or "phase".');
+    m.errors.push('kind must be "graph", "region", or "phase" (or "slope" or "line").');
     return fail();
   }
   return m.errors.length ? fail() : { spec, ...m };
 }
 
-const GRAPH_FIELDS = [...COMMON_FIELDS, 'curves', 'impulses'];
+const GRAPH_FIELDS = [...COMMON_FIELDS, 'curves', 'impulses', 'jumpGuides'];
 
 function checkGraph(raw: Record<string, unknown>, m: Messages): GraphSpec | null {
   warnUnknown(raw, GRAPH_FIELDS, m);
@@ -136,15 +143,17 @@ function checkGraph(raw: Record<string, unknown>, m: Messages): GraphSpec | null
           const on = pair(p.on);
           if (!on) return void m.errors.push(`${pw}: on must be [from, to] with from < to.`);
           const ends: [Fill | null, Fill | null] = Array.isArray(p.ends) ? [fillOf(p.ends[0]), fillOf(p.ends[1])] : [null, null];
-          const e = compileExpr(p.expr, v, pw, m);
+          const e = compileExpr(p.expr, v, pw, m, common.params, !!common.schematic);
           if (e) pieces.push({ expr: e.expr, text: e.text, f: e.f, on, ends });
+          if (e?.schematicUsed) common.schematic = true;
         });
         pieces.sort((p, q) => p.on[0] - q.on[0]);
         for (let j = 1; j < pieces.length; j++)
           if (pieces[j].on[0] < pieces[j - 1].on[1] - 1e-12) m.errors.push(`${where}: pieces ${j} and ${j + 1} overlap.`);
       } else {
-        const e = compileExpr(c.expr, v, where, m);
+        const e = compileExpr(c.expr, v, where, m, common.params, !!common.schematic);
         if (e) pieces.push({ expr: e.expr, text: e.text, f: e.f, on: [a, b], ends: [null, null] });
+        if (e?.schematicUsed) common.schematic = true;
       }
       if (pieces.length) curves.push({ n: i + 1, label, style, pieces, piecewise: Array.isArray(c.pieces) });
     });
@@ -160,13 +169,15 @@ function checkGraph(raw: Record<string, unknown>, m: Messages): GraphSpec | null
 
   // The equation in "from" should be the one drawn. When it can be read as an
   // expression (y = e^{-t}\cos(2t)), check that some curve matches it.
-  const fromExpr = fromAsExpr(common.from, v);
-  if (fromExpr && curves.some((c) => !c.piecewise)) {
-    const matches = curves.some((c) => !c.piecewise && sameFunction(fromExpr, c.pieces[0].f, a, b));
-    if (!matches)
-      m.warnings.push(
-        `The equation in "from" doesn’t match any curve. The drawing follows each curve’s "expr"; change "expr" to change the curve.`,
-      );
+  if (!common.schematic) {
+    const fromExpr = fromAsExpr(common.from, v, common.params);
+    if (fromExpr && curves.some((c) => !c.piecewise)) {
+      const matches = curves.some((c) => !c.piecewise && sameFunction(fromExpr, c.pieces[0].f, a, b));
+      if (!matches)
+        m.warnings.push(
+          `The equation in "from" doesn’t match any curve. The drawing follows each curve’s "expr"; change "expr" to change the curve.`,
+        );
+    }
   }
 
   /* points: "on": { "curve": n, "at": x } */
@@ -190,7 +201,7 @@ function checkGraph(raw: Record<string, unknown>, m: Messages): GraphSpec | null
     impulses.push({ at: im.at, size: isNum(im.size) && im.size !== 0 ? im.size : 1, label: str(im.label) });
   });
 
-  return { kind: 'graph', ...common, window: { x: wx, y: common.window.y }, points, curves, impulses };
+  return { kind: 'graph', ...common, window: { x: wx, y: common.window.y }, points, curves, impulses, jumpGuides: raw.jumpGuides === true };
 }
 
 /**
@@ -224,13 +235,21 @@ function limitValue(p: Piece, x: number): number {
  * The right-hand side of a one-equation "from" as a function, or null when it isn't a
  * simple "y = …" that the parser can read (integrals, systems, cases, spacing commands).
  */
-export function fromAsExpr(from: string, v: string): ((x: number) => number) | null {
+export function fromAsExpr(from: string, v: string, params: Record<string, number> = {}): ((x: number) => number) | null {
   const parts = from.split('=');
   if (parts.length !== 2 || /\\(begin|int|sum|quad|;)|,/.test(from)) return null;
   // Only "y = …" or "u(t) = …": not y'' + y = 0, x^2 + y^2 = 1, …
   if (!/^\s*[A-Za-z]\s*(\(\s*[A-Za-z]\s*\))?\s*$/.test(parts[0])) return null;
   try {
-    return fn1(cleanExpr(parts[1]), v);
+    const paramNames = Object.keys(params);
+    const useSchematic = /\b[fg]\s*\(/.test(parts[1]) && v !== 'f' && v !== 'g';
+    const extra = useSchematic ? SCHEMATIC_FUNCS : {};
+    const g = compile(parse(cleanExpr(parts[1]), [v, ...paramNames], extra), extra);
+    const env: Record<string, number> = { ...params, [v]: 0 };
+    return (x: number) => {
+      env[v] = x;
+      return g(env);
+    };
   } catch {
     return null;
   }

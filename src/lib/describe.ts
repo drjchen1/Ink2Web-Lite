@@ -13,6 +13,7 @@
  */
 
 import { plainMath, rendersAsWritten } from './exportHtml.ts';
+import { stripThinkingTraces } from './transcript.ts';
 
 export const DESCRIBE_SCHEMA = {
   type: 'object',
@@ -82,7 +83,7 @@ export interface FigureDescription {
  * JSON in a code fence or with words around it (models without structured output).
  */
 export function parseDescription(answer: string): FigureDescription | null {
-  const text = answer.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const text = stripThinkingTraces(answer).trim();
   const candidates = [text.replace(/^```(?:json)?\s*|\s*```$/g, ''), text.match(/\{[\s\S]*\}/)?.[0] ?? ''];
   for (const c of candidates) {
     try {

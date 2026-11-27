@@ -147,3 +147,78 @@ export function describeGraph(facts: GraphFacts): { short: string; long: string 
   parts.push(...describeMarks(spec));
   return { short, long: parts.join(' ') };
 }
+
+/** Converts Unicode math tokens inside an alt-text formula fragment into clean LaTeX. */
+function texFrag(s: string): string {
+  return s
+    .replace(/−/g, '-')
+    .replace(/π/g, '\\pi ')
+    .replace(/≈/g, '\\approx ')
+    .replace(/∞/g, '\\infty ')
+    .replace(/≤/g, '\\le ')
+    .replace(/≥/g, '\\ge ')
+    .replace(/≠/g, '\\ne ')
+    .replace(/·/g, '\\cdot ')
+    .replace(/√(\d+)/g, '\\sqrt{$1}')
+    .replace(/′/g, "'")
+    .trim();
+}
+
+/**
+ * Wraps coordinates, bounds, inequalities, and equations in plain-word alt text
+ * with `$...$` so sighted readers get typeset MathJax in `<details>` while `<svg><desc>`
+ * retains screen-reader-friendly plain text.
+ */
+export function mathifyAlt(long: string): string {
+  const spans: { start: number; end: number; tex: string }[] = [];
+  const add = (start: number, end: number, tex: string) => {
+    if (spans.some((s) => !(end <= s.start || start >= s.end))) return;
+    spans.push({ start, end, tex });
+  };
+
+  // Axis range bounds (leaving "about " outside $...$).
+  const axisRe = /\b(Horizontal|Vertical|vertical) axis ([^\s]+) from (about )?([^;.\s]+) to (about )?([^;.\s]+)/g;
+  for (const m of long.matchAll(axisRe)) {
+    const i = m.index!;
+    const s1 = i + m[1].length + ' axis '.length;
+    add(s1, s1 + m[2].length, `$${texFrag(m[2])}$`);
+    const fromPos = long.indexOf(' from ', s1) + 6 + (m[3]?.length ?? 0);
+    add(fromPos, fromPos + m[4].length, `$${texFrag(m[4])}$`);
+    const toPos = long.indexOf(' to ', fromPos) + 4 + (m[5]?.length ?? 0);
+    add(toPos, toPos + m[6].length, `$${texFrag(m[6])}$`);
+  }
+
+  // Coordinates like (0, 1), (−π, 0), (0.55, ≈0.303).
+  const coordRe = /\(([−≈−\-\dπe√./]+),\s*([−≈−\-\dπe√./]+)\)/g;
+  for (const m of long.matchAll(coordRe)) {
+    add(m.index!, m.index! + m[0].length, `$(${texFrag(m[1])}, ${texFrag(m[2])})$`);
+  }
+
+  // Compound inequalities like 0 ≤ t < 2 or −1 < x < 1.
+  const ineqRe = /(?<![$\w\\])([−≈\-\dπe√./]+)\s*([≤<≥>])\s*([A-Za-zθω]+)\s*([≤<≥>])\s*([−≈\-\dπe√./]+)(?![$\w])/g;
+  for (const m of long.matchAll(ineqRe)) {
+    add(m.index!, m.index! + m[0].length, `$${texFrag(m[0])}$`);
+  }
+
+  // Equations/relations like t = 2, x ≈ 5.14, Re(s) > −1, y′ = 0, y = t, y′ = t − y, u(0) = 1.
+  const term = '(?:[−≈\\-\\dπe√./i]+|[A-Za-zθω](?:\\([A-Za-z0-9.,−\\-]+\\))?)';
+  const eqRe = new RegExp(
+    `(?<![$\\w\\\\])(Re\\([A-Za-z]\\)|Im\\([A-Za-z]\\)|[A-Za-zθω](?:[′']|\\([A-Za-z0-9.,−\\-]+\\))?)\\s*([=≈<>≤≥])\\s*(${term}(?:\\s*[+\\−\\-±·]\\s*${term})*)(?![$\\w])`,
+    'g',
+  );
+  for (const m of long.matchAll(eqRe)) {
+    add(m.index!, m.index! + m[0].length, `$${texFrag(m[0])}$`);
+  }
+
+  if (!spans.length) return long;
+  spans.sort((a, b) => a.start - b.start);
+  let out = '';
+  let cur = 0;
+  for (const s of spans) {
+    if (s.start < cur) continue;
+    out += long.slice(cur, s.start) + s.tex;
+    cur = s.end;
+  }
+  out += long.slice(cur);
+  return (out.match(/\$/g) ?? []).length % 2 === 0 ? out : long;
+}

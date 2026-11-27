@@ -78,6 +78,12 @@ figure.fig details.fig-desc{margin-top:.4rem;text-align:left}
 figure.fig details.fig-desc summary{cursor:pointer;font-weight:600;font-size:.9rem}
 figure.fig .fig-desc-body{font-size:.95rem;line-height:1.55;margin-top:.35rem}
 figure.fig .fig-desc-body p{margin:0 0 .5rem}
+.notebox{border-left:4px solid #4f46e5;background:#f8fafc;padding:1rem 1.25rem;margin:1.25rem 0;border-radius:0 .5rem .5rem 0;border-top:1px solid #d0d0d0;border-right:1px solid #d0d0d0;border-bottom:1px solid #d0d0d0}
+.notebox .math-display{margin:0}
+.side-by-side{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1.5rem;align-items:start;margin:1.5rem 0;clear:both}
+.side-by-side figure.fig{width:100%;margin:0}
+.side-by-side .col>:first-child,.side-by-side .side-text>:first-child{margin-top:0}
+@media (max-width:48rem){.side-by-side{grid-template-columns:minmax(0,1fr)}}
 `;
 
 /** The look of the exported document (3.2): one column of text, or page cards. */
@@ -140,12 +146,43 @@ export function figureHtml(fig: Figure | undefined, pageNo: number, inRow = fals
   // The cards look always shows a title; when it only repeats what a screen reader
   // already heard (the alt text), it is hidden from screen readers. Captions and titles
   // render their $…$ math (3.2.1).
-  const desc = descriptionHtml(fig.description);
+  const redrawn = show !== 'image' && state.kind === 'ready';
+  const desc = descriptionHtml(
+    fig.description?.trim() ? fig.description : redrawn && look === 'cards' ? state.result.alt.markdown : undefined,
+  );
   const cap = fig.caption.trim();
   let caption = '';
   if (look === 'cards') {
-    const redrawn = show !== 'image' && state.kind === 'ready';
-    const title = cap ? inlineMarkdown(cap) : redrawn ? escapeHtml(state.result.alt.short) : figureTitleHtml(fig);
+    let title: string;
+    if (cap) title = inlineMarkdown(cap);
+    else if (redrawn) {
+      const sp = state.result.spec;
+      const from = ('from' in sp ? sp.from : '').trim();
+      let noun = 'Graph of';
+      if ('kind' in sp) {
+        noun =
+          sp.kind === 'region'
+            ? 'Region for'
+            : sp.kind === 'phase'
+              ? 'Phase plane for'
+              : sp.kind === 'slope'
+                ? 'Slope field for'
+                : sp.kind === 'line'
+                  ? 'Diagram for'
+                  : 'Graph of';
+      } else if (sp.scene === 'diagram') {
+        noun = 'Diagram for';
+      } else if (sp.space === 'complex') {
+        noun = 'Complex plane for';
+      } else if (sp.layers.some((l) => l.kind === 'field' || l.kind === 'flow')) {
+        noun = 'Phase plane for';
+      } else if (sp.layers.some((l) => l.kind === 'shade')) {
+        noun = 'Region for';
+      }
+      if (fig.title?.trim() && rendersAsWritten(fig.title)) title = figureTitleHtml(fig);
+      else if (from && !/\\begin\s*\{/.test(from) && from.length <= 70) title = inlineMarkdown(`${noun} $${from}$`);
+      else title = escapeHtml(state.result.alt.short);
+    } else title = figureTitleHtml(fig);
     const hide = !cap ? ' aria-hidden="true"' : '';
     caption = `<figcaption><div class="fig-title"${hide}><span class="fig-label">Figure:</span> ${title}</div>${desc}</figcaption>`;
   } else if (cap || desc) caption = `<figcaption>${cap ? inlineMarkdown(cap) : ''}${desc}</figcaption>`;
@@ -214,7 +251,95 @@ export function figureRowHtml(ids: number[], figures: Figure[], pageNo: number, 
   return `<div class="fig-row align-${figs[0].align ?? 'center'}">${figs.map((f) => figureHtml(f, pageNo, true, look)).join('')}</div>`;
 }
 
+const FIGROW_LINE = /^\s*\[\[FIGROW((?:\s+\d+)+)\s*\]\]\s*$/;
+
+function isStackedBeside(primary: Figure, candidate: Figure, inRow: Set<number>): boolean {
+  if (candidate.id === primary.id || inRow.has(candidate.id)) return false;
+  const sideOk =
+    primary.align === 'left'
+      ? candidate.box.x >= primary.box.x + primary.box.w * 0.85
+      : candidate.box.x + candidate.box.w <= primary.box.x + primary.box.w * 0.15;
+  const vertOk =
+    candidate.box.y >= primary.box.y - primary.box.h * 0.15 && candidate.box.y < primary.box.y + primary.box.h * 1.35;
+  return sideOk && vertOk;
+}
+
+function renderCardsPage(page: Page, pageNo: number, ctx?: RenderContext): string {
+  const src = withRows(page.source, page.figures);
+  const lines = src.split('\n');
+  const units = sourceUnits(src);
+  const inRow = rowMembers(page.source, page.figures);
+  const figHtml = (id: number) => figureHtml(page.figures.find((f) => f.id === id), pageNo, false, 'cards');
+  const rowHtml = (ids: number[]) => figureRowHtml(ids, page.figures, pageNo, 'cards');
+  const opts = { ctx, noteStyle: 'list' as const, notebox: true, figure: figHtml, figureRow: rowHtml };
+
+  const chunks: string[] = [];
+  let normalUnits: string[] = [];
+  const flushNormal = () => {
+    if (!normalUnits.length) return;
+    chunks.push(markdownToHtml(normalUnits.join('\n\n'), opts));
+    normalUnits = [];
+  };
+
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    const text = lines.slice(u.start, u.end + 1).join('\n');
+    const m = u.start === u.end ? lines[u.start].match(MARKER_LINE) : null;
+    const f = m ? page.figures.find((x) => x.id === Number(m[1])) : undefined;
+    if (f && f.wrap && f.align !== 'center' && f.besideLines > 0 && !inRow.has(f.id)) {
+      const beside: string[] = [];
+      let textCount = 0;
+      let j = i + 1;
+      while (j < units.length && textCount < f.besideLines) {
+        const ju = units[j];
+        const jLine = lines[ju.start];
+        const jm = ju.start === ju.end ? jLine.match(MARKER_LINE) : null;
+        if (jm) {
+          const f2 = page.figures.find((x) => x.id === Number(jm[1]));
+          if (!f2 || !isStackedBeside(f, f2, inRow)) break;
+          beside.push(jLine);
+          j++;
+          continue;
+        }
+        if (ju.start === ju.end && FIGROW_LINE.test(jLine)) break;
+        beside.push(lines.slice(ju.start, ju.end + 1).join('\n'));
+        textCount++;
+        j++;
+      }
+      // Absorb a stacked companion figure sitting immediately after the beside text on the opposite side.
+      while (j < units.length) {
+        const ju = units[j];
+        const jm = ju.start === ju.end ? lines[ju.start].match(MARKER_LINE) : null;
+        if (!jm) break;
+        const f2 = page.figures.find((x) => x.id === Number(jm[1]));
+        if (!f2 || !isStackedBeside(f, f2, inRow)) break;
+        beside.push(lines[ju.start]);
+        j++;
+      }
+      if (beside.length) {
+        flushNormal();
+        const sideOpts = {
+          ...opts,
+          figure: (id: number) => {
+            const target = page.figures.find((x) => x.id === id);
+            return figureHtml(target ? { ...target, wrap: false, width: 100 } : undefined, pageNo, false, 'cards');
+          },
+        };
+        const figBox = figureHtml({ ...f, wrap: false, width: 100 }, pageNo, false, 'cards');
+        const sideText = `<div class="side-text">${markdownToHtml(beside.join('\n\n'), sideOpts)}</div>`;
+        chunks.push(`<div class="side-by-side">${f.align === 'right' ? sideText + figBox : figBox + sideText}</div>`);
+        i = j - 1;
+        continue;
+      }
+    }
+    normalUnits.push(text);
+  }
+  flushNormal();
+  return chunks.filter(Boolean).join('\n');
+}
+
 export function pageHtml(page: Page, pageNo: number, ctx?: RenderContext, look: ExportLook = 'classic'): string {
+  if (look === 'cards') return renderCardsPage(page, pageNo, ctx);
   const html = markdownToHtml(withRows(withWrapEnds(page.source, page.figures), page.figures), {
     ctx,
     figure: (id) => figureHtml(page.figures.find((f) => f.id === id), pageNo, false, look),
@@ -241,7 +366,9 @@ export function looksLikeFileName(title: string): boolean {
 export function resolveTitle(pages: Page[], title: string, fromFileName = false): { title: string; pages: Page[] } {
   if (!(fromFileName || looksLikeFileName(title)) || !pages.length) return { title, pages };
   const first = pages[0];
-  const m = first.source.match(/^\s*#{1,6}\s+(.+?)\s*#*\s*(?:\n|$)/);
+  const m =
+    first.source.match(/^\s*#{1,6}\s+(.+?)\s*#*\s*(?:\n|$)/) ??
+    first.source.match(/^\s*(?:\*\*|__)?<u>([^<\n]{2,80})<\/u>(?:\*\*|__)?\s*(?:\n|$)/i);
   if (!m) return { title, pages };
   const heading = m[1].replace(/\*\*|__/g, '').trim();
   return { title: heading, pages: [{ ...first, source: first.source.slice(m[0].length) }, ...pages.slice(1)] };
@@ -335,6 +462,25 @@ ${body}
 `;
 }
 
+/**
+ * Converts a built HTML document into a self-contained offline document by replacing
+ * `<main>...</main>` with pre-rendered MathJax SVG output, inlining global SVG cache +
+ * styles, and removing the CDN MathJax script while keeping print details listeners.
+ */
+export function finalizeOfflineHtml(
+  docHtml: string,
+  renderedMainInner: string,
+  mjxCss: string,
+  globalCacheSvg: string,
+): string {
+  let out = docHtml
+    .replace(/<script defer id="MathJax-script"[^>]*><\/script>\n?/i, '')
+    .replace(/window\.MathJax\s*=\s*\{[\s\S]*?\n\};\n?/i, '');
+  if (mjxCss) out = out.replace('</head>', `<style id="MJX-SVG-styles">${mjxCss}</style>\n</head>`);
+  if (globalCacheSvg) out = out.replace('<body>\n', `<body>\n<div hidden aria-hidden="true">${globalCacheSvg}</div>\n`);
+  return out.replace(/<main([^>]*)>[\s\S]*?<\/main>/, `<main$1>\n${renderedMainInner}\n</main>`);
+}
+
 /** A safe file name from the document title: "Lecture 3: Springs" -> "lecture-3-springs". */
 export function fileSlug(title: string): string {
   return (title.trim() || 'notes').replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-').toLowerCase() || 'notes';
@@ -385,15 +531,22 @@ blockquote{border-left:4px solid var(--accent);background:var(--soft);padding:1r
 hr{border:0;border-top:1px solid var(--line);margin:2rem 0}
 .table-wrap{overflow-x:auto;border:1px solid var(--line-2);border-radius:.75rem}
 table{width:100%;border-collapse:collapse}
+caption{font-weight:700;font-size:.9rem;color:var(--ink-2);text-align:left;padding:.75rem 1rem;background:var(--bg);border-bottom:1px solid var(--line-2)}
 th,td{padding:.6rem .9rem;border-bottom:1px solid var(--line);text-align:left}
 th{background:var(--soft)}
 ${FIGURE_CSS}
+.notebox{border-left:4px solid #4f46e5;background:var(--soft);padding:1.25rem 1.75rem;margin:2rem 0;border-radius:0 .75rem .75rem 0;border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.notebox .math-display{margin:0}
+.side-by-side{margin:1.75rem 0}
 figure.fig{border:1px solid var(--line);border-radius:1rem;overflow:hidden;background:#fff;margin:2rem auto}
 figure.fig img,figure.fig svg.redraw{border:0;border-radius:0}
 figure.fig figcaption{margin:0;padding:.875rem 1.25rem;background:var(--soft);border-top:1px solid var(--line);color:var(--ink-2);font-size:.9rem}
 figure.fig .fig-title{font-weight:700;color:var(--ink)}
 figure.fig .fig-label{color:var(--muted);font-weight:600;margin-right:.25rem}
-figure.fig details.fig-desc summary{color:var(--accent);font-size:.85rem}
+figure.fig details.fig-desc summary{color:var(--accent);font-size:.85rem;list-style:none;display:inline-flex;align-items:center;gap:.35rem}
+figure.fig details.fig-desc summary::-webkit-details-marker{display:none}
+figure.fig details.fig-desc summary::before{content:"▸";display:inline-block;transition:transform .2s ease}
+figure.fig details.fig-desc[open] summary::before{transform:rotate(90deg)}
 figure.fig .fig-desc-body{background:#fff;border:1px solid var(--line);border-radius:.5rem;padding:.75rem 1rem;color:var(--ink)}
 figure.fig.wrap.align-left{margin:.25rem 1.5rem 1rem 0}
 figure.fig.wrap.align-right{margin:.25rem 0 1rem 1.5rem}
@@ -409,7 +562,7 @@ html,body{background:#fff!important;padding:0!important;font-size:10.5pt;line-he
 .page-badge{border:0;background:none;padding:0}
 h1,h2,h3,h4{break-after:avoid}
 h1{font-size:18pt}h2{font-size:13.5pt}h3{font-size:11.5pt}
-figure.fig,table,blockquote,.math-display{break-inside:avoid}
+figure.fig,table,blockquote,.notebox,.math-display{break-inside:avoid}
 figure.fig figcaption{background:#fff}
 details.fig-desc summary{display:none}
 }
@@ -434,7 +587,7 @@ export function buildCardsDocument(inputPages: Page[], opts: ExportOptions): str
     .map((p, i) => {
       const badge = opts.pageMarkers ? `<div class="page-bar" aria-hidden="true"><span class="page-badge">Page ${i + 1} of ${n}</span></div>\n` : '';
       const header = i === 0 ? `<header class="doc-header"><h1>${titleHtml}</h1>${link}</header>\n` : '';
-      return `<section class="doc-page" id="page-${i + 1}" aria-label="Page ${i + 1} of ${n}">\n${badge}${header}${pageHtml(p, i + 1, ctx, 'cards')}\n</section>`;
+      return `<section class="doc-page" id="page-${i + 1}" aria-label="Page ${i + 1} of ${n}">\n${badge}${header}<article class="math-content">\n${pageHtml(p, i + 1, ctx, 'cards')}\n</article>\n</section>`;
     })
     .join('\n');
   const meta = { '@context': 'https://schema.org', '@type': 'LearningResource', name: titleText.replace(/\$/g, ''), inLanguage: opts.lang || 'en' };
@@ -458,6 +611,8 @@ window.MathJax = {
         // Equations on their own line can be reached with Tab and scrolled when wide.
         document.querySelectorAll('mjx-container[display="true"]').forEach(function (el) {
           el.setAttribute('tabindex', '0');
+          el.setAttribute('role', 'group');
+          el.setAttribute('aria-label', 'Mathematical equation');
         });
       });
     }

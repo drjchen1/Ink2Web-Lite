@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ModelInfo, Provider, Settings } from '../types.ts';
-import { PROVIDERS } from '../lib/model.ts';
+import { PROVIDERS, unloadModel } from '../lib/model.ts';
 import { PromptInspector } from './PromptInspector.tsx';
 import type { PromptLibrary } from '../lib/promptLibrary.ts';
 import { BUILTIN_IDS, BUILTIN_PROMPTS, promptSizeHint } from '../lib/prompts.ts';
@@ -51,6 +51,14 @@ export function SettingsPanel({
   };
 
   const genai = settings.provider === 'genai';
+  const [unloadNote, setUnloadNote] = useState('');
+  const [unloading, setUnloading] = useState(false);
+  const freeRam = async () => {
+    setUnloading(true);
+    const ok = await unloadModel(settings);
+    setUnloadNote(ok ? 'Unloaded model from RAM.' : 'Model wasn’t loaded.');
+    setUnloading(false);
+  };
   const switchTo = (provider: Provider) => {
     if (provider === settings.provider) return;
     // Each provider keeps its own model; the list reloads for the new one.
@@ -103,7 +111,22 @@ export function SettingsPanel({
             <button type="button" onClick={onRefresh} disabled={disabled || loadingModels}>
               Refresh
             </button>
+            {!genai && (
+              <button
+                type="button"
+                onClick={freeRam}
+                disabled={disabled || unloading || !settings.model}
+                title="Ask Ollama to unload the model from memory immediately (keep_alive: 0)"
+              >
+                {unloading ? 'Freeing…' : 'Free RAM'}
+              </button>
+            )}
           </div>
+          {unloadNote && (
+            <p className="hint" role="status" aria-live="polite">
+              {unloadNote}
+            </p>
+          )}
           <p id="model-help" className="hint">
             {modelError ? (
               <span className="error-text" role="alert">
@@ -116,7 +139,7 @@ export function SettingsPanel({
             ) : genai ? (
               'Choose a model that reads images (for example a Qwen VL or Gemma model). Large models do best with the Larger models prompt below.'
             ) : (
-              'Recommended: qwen3.5:4b-mlx on Apple Silicon, otherwise qwen3-vl:4b-instruct. On a more powerful computer, try a larger model with the Larger models prompt below.'
+              'Any vision model works. Tuned in order for: qwen3.5:4b-mlx (primary), Maternion/LightOnOCR-3:4b-q4_K_M or ministral-3:3b (secondary), qwen3.5:2b-mlx or gemma4:e2b-it-qat (fallback / simple pages).'
             )}
           </p>
         </div>
@@ -138,6 +161,51 @@ export function SettingsPanel({
           <p className="hint">Higher detail reads small handwriting, brace notes, and labels better but takes longer.</p>
         </div>
       </div>
+
+      {!genai && (
+        <div className="field ctx-field">
+          <label htmlFor="ctx">Context window (num_ctx)</label>
+          <div className="row ctx-row">
+            <input
+              id="ctx"
+              type="number"
+              min={4096}
+              step={1024}
+              value={ctxDraft}
+              disabled={disabled}
+              aria-describedby="ctx-help"
+              onChange={(e) => setCtxDraft(e.target.value)}
+              onBlur={applyCtx}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyCtx();
+              }}
+            />
+            <div className="seg" role="group" aria-label="Context window presets">
+              {[4096, 8192, 16384].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  disabled={disabled}
+                  aria-pressed={settings.numCtx === v}
+                  onClick={() => {
+                    setCtxDraft(String(v));
+                    onChange({ numCtx: v });
+                  }}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p id="ctx-help" className="hint">
+            <strong>Recommended:</strong> <strong>8 GB Mac / PC:</strong> use <strong>4096</strong> for 4B models (
+            <code>qwen3.5:4b-mlx</code>, <code>LightOnOCR-3:4b</code>) or <strong>6144–8192</strong> for 2B–3B models (
+            <code>ministral-3:3b</code>, <code>qwen3.5:2b-mlx</code>, <code>gemma4:e2b-it-qat</code>).{' '}
+            <strong>16 GB+ Mac / PC:</strong> use <strong>8192</strong> for standard pages, or <strong>12288–16384</strong> for
+            dense High-detail pages and mathematical redraws.
+          </p>
+        </div>
+      )}
 
       <fieldset className="field prompt-set" disabled={disabled} aria-describedby="prompt-set-help">
         <legend>Transcription prompt</legend>
@@ -196,6 +264,35 @@ export function SettingsPanel({
           />{' '}
           Ask the model where figures are when its list and the detected drawings disagree
         </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.autoRedraw}
+            disabled={disabled}
+            onChange={(e) => onChange({ autoRedraw: e.target.checked })}
+          />{' '}
+          Redraw mathematical graphs as clean SVG when their equation is in the notes
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.splitDensePages !== false}
+            disabled={disabled}
+            onChange={(e) => onChange({ splitDensePages: e.target.checked })}
+          />{' '}
+          Split dense small-model pages or two-column handouts into bands before reading
+        </label>
+        {!genai && (
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.unloadAfterConvert !== false}
+              disabled={disabled}
+              onChange={(e) => onChange({ unloadAfterConvert: e.target.checked })}
+            />{' '}
+            Unload model from memory when conversion finishes (recommended on 8 GB machines)
+          </label>
+        )}
       </div>
 
       <details>
@@ -206,38 +303,21 @@ export function SettingsPanel({
             README › GenAI Studio). The key never reaches the browser.
           </p>
         ) : (
-        <div className="grid">
-          <div className="field">
-            <label htmlFor="base">Ollama URL</label>
-            <input
-              id="base"
-              value={settings.baseUrl}
-              disabled={disabled}
-              onChange={(e) => onChange({ baseUrl: e.target.value })}
-              aria-describedby="base-help"
-            />
-            <p id="base-help" className="hint">
-              “/ollama” uses the dev-server proxy (recommended). A direct URL needs OLLAMA_ORIGINS set.
-            </p>
+          <div className="grid">
+            <div className="field">
+              <label htmlFor="base">Ollama URL</label>
+              <input
+                id="base"
+                value={settings.baseUrl}
+                disabled={disabled}
+                onChange={(e) => onChange({ baseUrl: e.target.value })}
+                aria-describedby="base-help"
+              />
+              <p id="base-help" className="hint">
+                “/ollama” uses the dev-server proxy (recommended). A direct URL needs OLLAMA_ORIGINS set.
+              </p>
+            </div>
           </div>
-          <div className="field">
-            <label htmlFor="ctx">Context window (num_ctx)</label>
-            <input
-              id="ctx"
-              type="number"
-              min={4096}
-              step={1024}
-              value={ctxDraft}
-              disabled={disabled}
-              onChange={(e) => setCtxDraft(e.target.value)}
-              onBlur={applyCtx}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') applyCtx();
-              }}
-            />
-            <p className="hint">Must fit the image plus the transcription. 8192 is enough for most pages; 4096 saves memory on 8 GB Macs.</p>
-          </div>
-        </div>
         )}
         <PromptInspector
           customPrompt={customPrompt}
