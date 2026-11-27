@@ -1,6 +1,10 @@
 import type { Box, Figure, Page, Settings } from '../types.ts';
 import type { ChatMessage } from './ollama.ts';
+<<<<<<< HEAD
 import { chat, endpoint, isLightOnOcrModel, resolveTaskThink } from './model.ts';
+=======
+import { chat, endpoint } from './model.ts';
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 import { notesAround } from './redraw/prompt.ts';
 import type { RedrawOutcome } from './redraw/conversation.ts';
 import { checkRedrawInk } from './redraw/inkCheck.ts';
@@ -11,8 +15,12 @@ import { analyzeSketch } from './redraw/v2/sketchCv.ts';
 import { REDRAW_V2_SYSTEM, buildRedrawV2Prompt, runRedrawV2Conversation } from './redraw/v2/converseV2.ts';
 
 export type { RedrawOutcome };
+<<<<<<< HEAD
 import { browserRaster } from './images.ts';
 import type { RasterBackend } from './raster.ts';
+=======
+import { cropBase64, cropFigure, figureInkMap, modelImage, pageInkMap, regionImage, snapToInk, squareImage } from './images.ts';
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 import { DESCRIBE_USER, LOCATE_SCHEMA, REREAD_USER, TRANSCRIBE_SYSTEM, locatePrompt, transcribePrompt } from './prompts.ts';
 import { analyzeLayout, defaultLayout, detectTwoColumns, matchFigures, splitDenseBands } from './layout.ts';
 import { besideUnitCount, placeByPosition, renumber, type Placed } from './placement.ts';
@@ -72,6 +80,7 @@ export async function convertPage(
   prompt: string = transcribePrompt(),
   env?: PipelineEnv,
 ): Promise<{ source: string; figures: Figure[] }> {
+<<<<<<< HEAD
   const raster = env?.raster ?? browserRaster;
   const ep = epOf(settings, env);
   const lightOn = isLightOnOcrModel(settings.model);
@@ -101,6 +110,28 @@ export async function convertPage(
       onToken: (_, full) => {
         const shown = lightOn ? cleanLightOnOcrOutput(full).text : full;
         onProgress({ phase: 'transcribing', text: prefix ? `${prefix}\n\n${shown}` : shown });
+=======
+  const base = { ...endpoint(settings), model: settings.model, disableThinking: thinking, signal };
+  const ink = await pageInkMap(page.image);
+  const layout = analyzeLayout(ink);
+
+  const askTranscribe = async (imgBase64: string, prefix = '') => {
+    let looped = false;
+    let checkedAt = 0;
+    const raw = await chat({
+      ...base,
+      options: { temperature: 0, num_ctx: settings.numCtx, num_predict: 4096 },
+      messages: [
+        { role: 'system', content: TRANSCRIBE_SYSTEM },
+        {
+          role: 'user',
+          content: prompt,
+          images: [imgBase64],
+        },
+      ],
+      onToken: (_, full) => {
+        onProgress({ phase: 'transcribing', text: prefix ? `${prefix}\n\n${full}` : full });
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
         // Abort the stream early if the model starts repeating itself.
         if (full.length - checkedAt >= 80) {
           checkedAt = full.length;
@@ -115,11 +146,15 @@ export async function convertPage(
   };
 
   let text = '';
+<<<<<<< HEAD
   let groundedBoxes: Box[] = [];
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   const twoCol = settings.splitDensePages !== false ? detectTwoColumns(ink, layout) : null;
   const bands = !twoCol && settings.splitDensePages !== false && settings.promptSet === 'everyday' ? splitDenseBands(layout) : null;
 
   if (twoCol) {
+<<<<<<< HEAD
     const headerRaw = twoCol.headerBox ? await askTranscribe(await raster.regionImage(page.image, twoCol.headerBox, settings.enhance), '', 'crop') : '';
     const leftRaw = await askTranscribe(await raster.regionImage(page.image, twoCol.leftBox, settings.enhance), headerRaw, 'crop');
     const rightRaw = await askTranscribe(await raster.regionImage(page.image, twoCol.rightBox, settings.enhance), [headerRaw, leftRaw].filter(Boolean).join('\n\n'), 'crop');
@@ -130,12 +165,24 @@ export async function convertPage(
       cleanModelOutput(stripOcr(leftRaw)),
       '[[next]]',
       cleanModelOutput(stripOcr(rightRaw)),
+=======
+    const headerRaw = twoCol.headerBox ? await askTranscribe(await regionImage(page.image, twoCol.headerBox, settings.enhance)) : '';
+    const leftRaw = await askTranscribe(await regionImage(page.image, twoCol.leftBox, settings.enhance), headerRaw);
+    const rightRaw = await askTranscribe(await regionImage(page.image, twoCol.rightBox, settings.enhance), [headerRaw, leftRaw].filter(Boolean).join('\n\n'));
+    const parts = [
+      headerRaw ? cleanModelOutput(headerRaw) : '',
+      '[[columns]]',
+      cleanModelOutput(leftRaw),
+      '[[next]]',
+      cleanModelOutput(rightRaw),
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
       '[[/columns]]',
     ].filter(Boolean);
     text = parts.join('\n\n');
   } else if (bands) {
     const rawParts: string[] = [];
     for (const band of bands) {
+<<<<<<< HEAD
       rawParts.push(await askTranscribe(await raster.regionImage(page.image, band, settings.enhance), rawParts.join('\n\n'), 'crop'));
     }
     const joined = rawParts.map((r) => (lightOn ? cleanLightOnOcrOutput(r).text : r)).join('\n\n');
@@ -149,6 +196,13 @@ export async function convertPage(
     } else {
       text = cleanModelOutput(raw);
     }
+=======
+      rawParts.push(await askTranscribe(await regionImage(page.image, band, settings.enhance), rawParts.join('\n\n')));
+    }
+    text = cleanModelOutput(rawParts.join('\n\n'));
+  } else {
+    text = cleanModelOutput(await askTranscribe(await modelImage(page.image, settings.detail, settings.enhance)));
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   }
 
   let { source, descriptions } = extractFigures(text);
@@ -199,9 +253,15 @@ export async function convertPage(
 
   // Larger models (3.2): every figure gets the full figure pass below, so a drawing the
   // detector found waits for it instead of first getting a one-sentence description.
+<<<<<<< HEAD
   const describePass = settings.promptSet === 'large' && settings.describeFigures && !isLightOnOcrModel(settings.model);
   const autoRedraw = settings.autoRedraw !== false && !isLightOnOcrModel(settings.model);
   /** One sentence for a drawing the model didn't mention ('' if the model fails or OCR-only model). */
+=======
+  const describePass = settings.promptSet === 'large' && settings.describeFigures;
+  const autoRedraw = settings.autoRedraw !== false;
+  /** One sentence for a drawing the model didn't mention ('' if the model fails). */
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   const shortAlt = async (box: Box): Promise<string> => {
     if (isLightOnOcrModel(settings.model)) return 'Hand-drawn figure';
     try {
@@ -275,9 +335,14 @@ export async function convertPage(
   if (autoRedraw) {
     const tempPage = { ...page, source: numbered };
     for (const f of figures) {
+<<<<<<< HEAD
       onProgress({ phase: 'locating', detail: `redraw ${f.id}/${figures.length}` });
       try {
         const r = await redrawFigure(tempPage, f, settings, thinking, signal, false, env);
+=======
+      try {
+        const r = await redrawFigure(tempPage, f, settings, thinking, signal);
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
         if (r.status === 'ok') {
           if (r.confidence === 'high') {
             f.redraw = { spec: r.spec, show: 'redrawn' };
@@ -290,7 +355,11 @@ export async function convertPage(
           } else {
             const parsed = redrawSpec(r.spec);
             if (parsed.ok) {
+<<<<<<< HEAD
               const check = checkRedrawInk(await raster.figureInkMap(page.image, f.box), parsed);
+=======
+              const check = checkRedrawInk(await figureInkMap(page.image, f.box), parsed);
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
               f.redraw = { spec: r.spec, show: check.matches ? 'redrawn' : 'both' };
               if (!check.matches) f.redrawCheck = true;
             } else {
@@ -374,6 +443,7 @@ export async function redrawFigure(
   interactive = false,
   env?: PipelineEnv,
 ): Promise<RedrawOutcome> {
+<<<<<<< HEAD
   if (isLightOnOcrModel(settings.model)) {
     return {
       status: 'unreadable',
@@ -388,6 +458,11 @@ export async function redrawFigure(
   const notes = notesAround(page.source, fig.id);
   const eqMenu = extractEquationMenu(notes);
   const ink = await raster.figureInkMap(page.image, fig.box);
+=======
+  const notes = notesAround(page.source, fig.id);
+  const eqMenu = extractEquationMenu(notes);
+  const ink = await figureInkMap(page.image, fig.box);
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   const profile = analyzeSketch(ink);
   const prompt = buildRedrawV2Prompt(notes, eqMenu, profile);
   const messages: ChatMessage[] = [
@@ -395,6 +470,7 @@ export async function redrawFigure(
     {
       role: 'user',
       content: prompt,
+<<<<<<< HEAD
       images: [await raster.regionImage(page.image, fig.box, settings.enhance)],
     },
   ];
@@ -407,14 +483,27 @@ export async function redrawFigure(
       return chat({
         ...epOf(settings, env),
         ...(env?.apiKey ? { apiKey: env.apiKey } : {}),
+=======
+      images: [await regionImage(page.image, fig.box, settings.enhance)],
+    },
+  ];
+  return runRedrawV2Conversation(
+    (msgs) =>
+      chat({
+        ...endpoint(settings),
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
         model: settings.model,
         think,
         signal,
+<<<<<<< HEAD
         options: {
           temperature: 0,
           num_ctx: settings.numCtx,
           num_predict: think === true ? Math.min(2200, Math.max(1400, settings.numCtx - 1500)) : 900,
         },
+=======
+        options: { temperature: 0, num_ctx: settings.numCtx, num_predict: 900 },
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
         messages: msgs,
       });
     },

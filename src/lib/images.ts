@@ -1,6 +1,11 @@
 import type { Box } from '../types.ts';
+<<<<<<< HEAD
 import { analyzeLayout, buildInkMap, cropInkMap, type InkMap, type Layout } from './layout.ts';
 import { snapBoxToInkMap, type RasterBackend } from './raster.ts';
+=======
+import { clampBox } from './transcript.ts';
+import { analyzeLayout, buildInkMap, cropInkMap, type InkMap, type Layout } from './layout.ts';
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 
 /** All raster work: loading files, preparing model input, cropping figures, ink analysis. */
 

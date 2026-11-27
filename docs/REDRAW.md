@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # Redraw Engine & Line-DSL Reference (Clean-Slate v2, v3.4.0)
+=======
+# Redraw Engine & Line-DSL Reference (Clean-Slate v2, v3.3.0)
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 
 Hand-drawn figures whose meaning lies in their mathematics (function graphs, piecewise step plots, shaded integrals, Riemann sums, slope fields, phase planes, sign charts, complex $s$-plane pole-zero plots, and block/spring schematics) can be redrawn cleanly from their mathematical specification — while always preserving the cropped original sketch as an instant fallback (**Image · Redrawn · Both**).
 
@@ -25,7 +29,10 @@ The Clean-Slate Redraw v2 engine lives in `src/lib/redraw/v2/` and feeds directl
 5. **Closed-Loop Bidirectional Ink Verification (`sketchCv.ts` — `verifySceneAgainstInk`, `converseV2.ts`)**
    - `runRedrawV2Conversation()` parses, evaluates, and runs bidirectional origin-anchored Chamfer distance scoring (`forwardCoverage` + `reverseCoverage`) between rendered curve polylines and the hand-drawn ink.
    - On syntax, evaluation, or ink-mismatch diagnostics, sends one structured repair turn and keeps the higher-scoring answer.
+<<<<<<< HEAD
    - **Per-task thinking coordination (`resolveTaskThink` in `src/lib/model.ts`):** keeps Round 1 automatic redraws fast (`think: false`), enables `think: true` on thinking-capable ≥4B models (`qwen3.5:4b-mlx`, 8B+ models) for Round 2 repair diagnostics and manual **Redraw with the model** calls, and keeps `think: false` on ≤3B edge fallback models.
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
    - `convertPage()` gates default document visibility by confidence:
      - **`high`**: shows `Redrawn`
      - **`medium`**: shows `Both` + sets `redrawCheck` review warning
@@ -149,4 +156,8 @@ All v1 JSON specs (`"kind": "graph" | "region" | "phase" | "slope" | "line"`) co
   - `render.ts` — `renderSceneSvg` textbook SVG renderer
   - `converseV2.ts` — `REDRAW_V2_SYSTEM`, `buildRedrawV2Prompt`, `runRedrawV2Conversation`
 - **Entry & Integration:** `src/lib/redraw/index.ts`, `src/lib/redraw/inkCheck.ts`, `src/lib/figureRedraw.ts`, `src/lib/pipeline.ts`, `src/components/RedrawSection.tsx`, `src/figure-lab.ts`, `figure-lab.html`
+<<<<<<< HEAD
 - **Tests:** `tests/redrawV2.test.ts`, `tests/redraw.test.ts`, `tests/redrawApp.test.ts`, `tests/wave2.test.ts`, `tests/lesson29.test.ts`, `tests/everydayModels.test.ts` (run all via `npm test`).
+=======
+- **Tests:** `tests/redrawV2.test.ts`, `tests/redraw.test.ts`, `tests/redrawApp.test.ts`, `tests/wave2.test.ts`, `tests/lesson29.test.ts` (run all via `npm test`).
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a

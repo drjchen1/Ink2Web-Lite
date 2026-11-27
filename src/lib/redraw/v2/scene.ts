@@ -3,7 +3,10 @@
  */
 import type { Fill, LineStyle, Pos } from '../common.ts';
 import { checkSpec, type Spec } from '../spec.ts';
+<<<<<<< HEAD
 import { stripThinkingTraces } from '../../transcript.ts';
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 import { evalBound } from './latexExpr.ts';
 import { expandEqRefs, type EqItem } from './eqMenu.ts';
 
@@ -234,7 +237,12 @@ export function parseSceneDsl(
   }
 
   if (typeof input !== 'string') return { scene: null, errors: ['Spec must be text or JSON.'], warnings };
+<<<<<<< HEAD
   const stripped = stripThinkingTraces(input)
+=======
+  const stripped = input
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
     .trim()
     .replace(/^```(?:[a-zA-Z]+)?\s*\n?|\s*```$/g, '')
     .trim();

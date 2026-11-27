@@ -135,8 +135,11 @@ export interface Settings {
   autoRedraw: boolean;
   /** Split dense small-model pages into horizontal bands or two-column handouts before reading. */
   splitDensePages: boolean;
+<<<<<<< HEAD
   /** Unload the local Ollama model from RAM (`keep_alive: 0`) once the conversion queue finishes. */
   unloadAfterConvert?: boolean;
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 }
 
 export interface ModelInfo {

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { Figure } from '../types.ts';
 import { markdownToHtml } from '../lib/markdown.ts';
+<<<<<<< HEAD
 import { shortcutMark, splitTextAtCursor } from '../lib/editing.ts';
+=======
+import { shortcutMark } from '../lib/editing.ts';
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 import { figureHtml, type ExportLook } from '../lib/exportHtml.ts';
 import { MarkupToolbar, applyMarkToTextarea } from './MarkupToolbar.tsx';
 import { Preview } from './Preview.tsx';
@@ -22,7 +26,11 @@ interface Props {
  * Edits one block of the page in place: its source, the markup toolbar, and a live
  * preview of just that block. ⌘/Ctrl+Enter finishes, Esc cancels.
  */
+<<<<<<< HEAD
 export function BlockEditor({ text, onText, onDone, onCancel, onSplit, onMergeNext, figures, pageNo, look = 'classic' }: Props) {
+=======
+export function BlockEditor({ text, onText, onDone, onCancel, figures, pageNo, look = 'classic' }: Props) {
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   const ref = useRef<HTMLTextAreaElement>(null);
   const [shown, setShown] = useState(text);
 

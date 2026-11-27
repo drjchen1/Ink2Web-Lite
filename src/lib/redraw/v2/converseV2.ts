@@ -24,11 +24,16 @@ export function buildRedrawV2Prompt(notes: string, eqMenu: EqItem[], profile?: S
 
   return `The image is one hand-drawn figure from math notes. Below are nearby notes ("$" math, ">>> THIS FIGURE <<<" marks its spot).
 
+<<<<<<< HEAD
 Rules:
 - Prefer referencing an equation from the Equation menu below (e.g. "from: @eq1" or "curve: @eq1") when it matches the sketch.
 - Match the axes, origin, and curve quadrants to the Sketch geometry hint and image.
 - Output ONLY raw Line-DSL lines ("key: value"), no JSON, no markdown code fences, no commentary.
 - If the sketch has NO equation or schematic in the notes (e.g. a casual doodle or photo), answer:
+=======
+Write a compact Line-DSL specification so the app can redraw it accurately.
+If the drawing has NO equation or schematic in the notes (e.g. a casual doodle or photo), answer:
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 scene: image
 
 ${hint ? `Sketch geometry hint:\n${hint}\n\n` : ''}${eqBlock ? `${eqBlock}\n\n` : ''}Examples:
@@ -83,7 +88,11 @@ Answer with the Line-DSL lines only (no markdown fences, no prose).`;
 }
 
 export async function runRedrawV2Conversation(
+<<<<<<< HEAD
   ask: (messages: ChatMessage[], round: number) => Promise<string>,
+=======
+  ask: (messages: ChatMessage[]) => Promise<string>,
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   first: ChatMessage[],
   opts?: { eqMenu?: EqItem[]; ink?: InkMap; profile?: SketchProfile },
 ): Promise<RedrawV2Outcome> {
@@ -99,7 +108,11 @@ export async function runRedrawV2Conversation(
   };
 
   for (let round = 0; round < 2; round++) {
+<<<<<<< HEAD
     const answer = await ask(messages, round);
+=======
+    const answer = await ask(messages);
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
     const parsed = parseSceneDsl(answer, eqMenu);
     if (parsed.scene === 'image') return { status: 'none', spec: '', errors: [], confidence: 'high' };
 

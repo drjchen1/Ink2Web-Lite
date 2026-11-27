@@ -85,11 +85,14 @@ export function RedrawSection({ fig, pid, onPatch, onRedraw, blocked }: Props) {
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState('');
   const [template, setTemplate] = useState<V2TemplateKey>('graph');
+<<<<<<< HEAD
   const [ghost, setGhost] = useState(!!fig.redrawCheck);
   const [ghostOpacity, setGhostOpacity] = useState(35);
   useEffect(() => {
     if (fig.redrawCheck) setGhost(true);
   }, [fig.redrawCheck]);
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   const abort = useRef<AbortController | null>(null);
   const typed = useRef(false);
   /** Closed for figures without a redraw (most of them); open once there is one. */
@@ -327,6 +330,7 @@ export function RedrawSection({ fig, pid, onPatch, onRedraw, blocked }: Props) {
                 )}
               </figcaption>
               {ready ? (
+<<<<<<< HEAD
                 <>
                   <div className="redraw-svg-wrap">
                     <div className="redraw-svg" dangerouslySetInnerHTML={{ __html: svg }} />
@@ -355,6 +359,9 @@ export function RedrawSection({ fig, pid, onPatch, onRedraw, blocked }: Props) {
                     </label>
                   )}
                 </>
+=======
+                <div className="redraw-svg" dangerouslySetInnerHTML={{ __html: svg }} />
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
               ) : (
                 <p className="hint">{result ? 'Not drawn: fix the errors in the spec below.' : 'No spec yet.'}</p>
               )}

@@ -282,6 +282,7 @@ export function SettingsPanel({
           />{' '}
           Split dense small-model pages or two-column handouts into bands before reading
         </label>
+<<<<<<< HEAD
         {!genai && (
           <label>
             <input
@@ -293,6 +294,8 @@ export function SettingsPanel({
             Unload model from memory when conversion finishes (recommended on 8 GB machines)
           </label>
         )}
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
       </div>
 
       <details>

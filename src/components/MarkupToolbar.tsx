@@ -24,7 +24,13 @@ const BUTTONS: { mark: Mark; text: string; title: string }[] = [
 
 const COLORS = ['red', 'green', 'blue', 'orange', 'purple'];
 
+<<<<<<< HEAD
 function runTextareaEdit(ta: HTMLTextAreaElement, ed: Edit, onChange: (value: string) => void) {
+=======
+/** Applies `mark` to `ta` via execCommand so native Undo keeps working. */
+export function applyMarkToTextarea(ta: HTMLTextAreaElement, mark: Mark, onChange: (value: string) => void) {
+  const ed = applyMark(ta.value, ta.selectionStart, ta.selectionEnd, mark);
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   ta.focus();
   ta.setSelectionRange(ed.from, ed.to);
   let ok = false;
@@ -40,11 +46,14 @@ function runTextareaEdit(ta: HTMLTextAreaElement, ed: Edit, onChange: (value: st
   });
 }
 
+<<<<<<< HEAD
 /** Applies `mark` to `ta` via execCommand so native Undo keeps working. */
 export function applyMarkToTextarea(ta: HTMLTextAreaElement, mark: Mark, onChange: (value: string) => void) {
   runTextareaEdit(ta, applyMark(ta.value, ta.selectionStart, ta.selectionEnd, mark), onChange);
 }
 
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 /**
  * Buttons that insert Ink2Web's markup around the selection. Edits go through the
  * browser's own text insertion where possible, so ⌘Z / Ctrl+Z still undoes them.
@@ -54,12 +63,15 @@ export function MarkupToolbar({ target, onChange, label }: Props) {
 
   const apply = (mark: Mark) => {
     if (target.current) applyMarkToTextarea(target.current, mark, onChange);
+<<<<<<< HEAD
   };
 
   const insertSnippet = (id: string) => {
     const ta = target.current;
     if (!ta) return;
     runTextareaEdit(ta, applySnippet(ta.value, ta.selectionStart, ta.selectionEnd, id), onChange);
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   };
 
   return (

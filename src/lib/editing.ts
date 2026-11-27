@@ -377,6 +377,7 @@ export interface PageIssue {
   text: string;
 }
 
+<<<<<<< HEAD
 export interface ReviewItem {
   pageId: string;
   pageNo: number;
@@ -386,6 +387,8 @@ export interface ReviewItem {
   block?: number;
 }
 
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 const VALID_TAG = /^\[\[\s*(?:FIGURE\s+\d+|CLEAR|FIGROW(?:\s+\d+)+|note(?:\s+(?:red|green|orange|purple|blue))?\s*:[\s\S]*|where\s*:[\s\S]*|scratch\s*:[\s\S]*|(?:red|green|orange|purple|blue)\s*:[\s\S]*|box(?:\s*:[^\]]*)?|\/box|columns|next|\/columns)\s*\]\]$/i;
 
 /** Returns true when `source` contains unrecognized `[[...]]` markup or an unclosed `[[` tag outside math/code. */
@@ -418,6 +421,7 @@ export function pageIssues(page: Pick<Page, 'source' | 'figures' | 'error'>): Pa
     else if (altTextIssue(f.alt)) out.push({ kind: 'alt-check', figure: f.id, text: `Figure ${f.id}: check the alt text.` });
     if (f.needsReview) out.push({ kind: 'figure-check', figure: f.id, text: `Figure ${f.id}: check the crop and position.` });
   }
+<<<<<<< HEAD
   const blocks = page.source ? splitBlocks(page.source, wrapEndLines(page.source, page.figures)) : [];
   const findBlock = (pred: (txt: string) => boolean): number | undefined => {
     const idx = blocks.findIndex((b) => b.fig === undefined && pred(blockText(page.source, b)));
@@ -438,6 +442,11 @@ export function pageIssues(page: Pick<Page, 'source' | 'figures' | 'error'>): Pa
       text: 'Unrecognized [[…]] markup in the text.',
     });
   }
+=======
+  const illegibles = (page.source.match(/\[\s*illegible\s*\]/gi) ?? []).length;
+  if (illegibles) out.push({ kind: 'illegible', text: `${illegibles} [illegible] spot${illegibles > 1 ? 's' : ''} to check against the original.` });
+  if (hasBrokenMarkup(page.source)) out.push({ kind: 'markup', text: 'Unrecognized [[…]] markup in the text.' });
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   const w = latexWarnings(page.source).length;
   if (w) {
     out.push({

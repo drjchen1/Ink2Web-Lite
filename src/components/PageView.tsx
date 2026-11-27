@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Box, Figure, Page } from '../types.ts';
 import { pageHtml, wrapEndLines, type ExportLook } from '../lib/exportHtml.ts';
+<<<<<<< HEAD
 import {
   blockText,
   commitBlock,
@@ -13,6 +14,9 @@ import {
   splitBlocks,
   type Block,
 } from '../lib/editing.ts';
+=======
+import { blockText, pageIssues, commitBlock, moveAltToNotes, pageBlocks, shortcutMark, splitBlocks, type Block } from '../lib/editing.ts';
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 import { latexWarnings } from '../lib/markdown.ts';
 import { cropFigure, pageLayout, snapToInk } from '../lib/images.ts';
 import { defaultLayout, overlapRatio, type TextLine } from '../lib/layout.ts';
@@ -52,8 +56,11 @@ interface Props {
   busy: 'converting' | 'rereading' | null;
   /** Open this figure's panel (from the export checklist or Review bar). `n` changes on every request. */
   focusFigure: { id: number; n: number } | null;
+<<<<<<< HEAD
   /** Open this text block editor (from the export checklist or Review bar). `n` changes on every request. */
   focusBlockRequest?: { id: number; n: number } | null;
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   look?: ExportLook;
   onUpdate: (id: string, patch: Partial<Page>) => void;
   /** Converts this page only (now, or after the page being converted). */
@@ -102,6 +109,7 @@ function useDebounced<T>(value: T, ms: number): T {
  * document on the right. Text blocks and figures open in place when clicked.
  */
 export const PageView = memo(function PageView(props: Props) {
+<<<<<<< HEAD
   const {
     page,
     index,
@@ -122,6 +130,10 @@ export const PageView = memo(function PageView(props: Props) {
     onRedraw,
     onDescribe,
   } = props;
+=======
+  const { page, index, count, liveText, canConvert, busy, focusFigure, look = 'classic', onUpdate, onConvert, onUnqueue, onRemove, onMove, onGo, onReread, onRedraw, onDescribe } =
+    props;
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   const pageNo = index + 1;
   const [tab, setTab] = useState<'preview' | 'edit'>('preview');
   /** The figure whose panel is open (its crop box is editable on the image). */
@@ -158,9 +170,12 @@ export const PageView = memo(function PageView(props: Props) {
 
   const source = useDebounced(page.source, 250);
   const pb = useMemo(() => pageBlocks({ source, figures: page.figures }, pageNo, hintId, look), [page.figures, source, pageNo, hintId, look]);
+<<<<<<< HEAD
   const bands = useMemo(() => estimateBlockBands(source, page.figures, scanLines), [source, page.figures, scanLines]);
   const spotlightIdx = editing ? editing.i : hoverBlock;
   const spotlight = spotlightIdx !== null ? (bands[spotlightIdx] ?? null) : null;
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
   // Under "Edit source" the preview isn't clickable, so it's rendered exactly like the export.
   const plainHtml = useMemo(
     () => (tab === 'edit' ? pageHtml({ ...page, source }, pageNo, undefined, look) : ''),
@@ -935,12 +950,20 @@ export const PageView = memo(function PageView(props: Props) {
                       id={`src-${page.id}`}
                       value={page.source}
                       spellCheck={false}
+<<<<<<< HEAD
                       onChange={(e) => applyPageEdit({ source: e.target.value }, 350)}
+=======
+                      onChange={(e) => onUpdate(page.id, { source: e.target.value })}
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
                       onKeyDown={(e) => {
                         const mk = shortcutMark(e);
                         if (mk && srcRef.current) {
                           e.preventDefault();
+<<<<<<< HEAD
                           applyMarkToTextarea(srcRef.current, mk, (v) => applyPageEdit({ source: v }, 350));
+=======
+                          applyMarkToTextarea(srcRef.current, mk, (v) => onUpdate(page.id, { source: v }));
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
                         }
                       }}
                     />

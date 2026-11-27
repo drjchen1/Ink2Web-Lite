@@ -53,7 +53,10 @@ const DEFAULTS: Settings = {
   describeFigures: true,
   autoRedraw: true,
   splitDensePages: true,
+<<<<<<< HEAD
   unloadAfterConvert: true,
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 };
 
 function loadSettings(): Settings {
@@ -67,7 +70,10 @@ function loadSettings(): Settings {
       describeFigures: s.describeFigures !== false,
       autoRedraw: s.autoRedraw !== false,
       splitDensePages: s.splitDensePages !== false,
+<<<<<<< HEAD
       unloadAfterConvert: s.unloadAfterConvert !== false,
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
     };
   } catch {
     return DEFAULTS;
@@ -936,7 +942,10 @@ export default function App() {
               canConvert={canConvert}
               busy={running ? 'converting' : rereading > 0 ? 'rereading' : null}
               focusFigure={focusFigure?.pageId === current.id ? { id: focusFigure.id, n: focusFigure.n } : null}
+<<<<<<< HEAD
               focusBlockRequest={focusBlockReq?.pageId === current.id ? { id: focusBlockReq.id, n: focusBlockReq.n } : null}
+=======
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
               look={exportLook}
               onUpdate={onUpdate}
               onConvert={convertOne}

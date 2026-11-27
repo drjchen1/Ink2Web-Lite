@@ -1,6 +1,10 @@
 # Ink2Web Lite: User Guide
 
+<<<<<<< HEAD
 This guide covers everyday use of **Ink2Web Lite 3.5.0**. For installation, model setup, and developer documentation, see [README.md](README.md) and [docs/REDRAW.md](docs/REDRAW.md).
+=======
+This guide covers everyday use of **Ink2Web Lite 3.3.0**. For installation, model setup, and developer documentation, see [README.md](README.md) and [docs/REDRAW.md](docs/REDRAW.md).
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 
 > **Your work saves automatically** in this browser on this computer. To back up a copy or move work to another computer or browser, click **Save** in the top bar to download a `.ink2web.json` project file. See [Saving your work](#8-saving-your-work).
 
@@ -59,6 +63,7 @@ Each provider remembers its last selected model separately.
 
 ### Vision model selection
 
+<<<<<<< HEAD
 **Any vision model** works with Ink2Web Lite. For local machines, models are prioritized in recommended order for the **Everyday hardware** pipeline:
 
 | Priority | Model | Pull command | Best for |
@@ -100,6 +105,42 @@ Models labeled **no vision** cannot read images. Click **Refresh** after pulling
 
 Under **Advanced**:
 - **Ollama URL**: keep `/ollama` unless connecting to a custom endpoint (`OLLAMA_ORIGINS` may be needed for direct cross-origin URLs).
+=======
+| Model | Pull command | Notes |
+|---|---|---|
+| **Qwen3.5 4B, MLX build** | `ollama pull qwen3.5:4b-mlx` | Recommended on Apple Silicon Macs (runs on 8 GB RAM) |
+| **Qwen3-VL 4B, instruct build** | `ollama pull qwen3-vl:4b-instruct` | Recommended on Windows, Linux, and Intel Macs |
+| **Qwen2.5-VL 3B** | `ollama pull qwen2.5vl:3b` | Smaller fallback |
+| **8B+ instruct models** | e.g. `ollama pull qwen3-vl:8b-instruct` | Higher accuracy on beefier hardware; pair with **Larger models** prompt |
+
+Models labeled **no vision** cannot read images. Click **Refresh** after pulling a new model.
+
+### Use "instruct" builds, not "thinking" ones
+
+Thinking/reasoning builds (including default tags like `qwen3-vl:4b`) generate hidden step-by-step reasoning before outputting text, which slows page conversion dramatically and can exhaust token limits. Use `-instruct` builds or MLX builds (`qwen3.5:4b-mlx`). Check capabilities with `ollama show <model>`.
+
+### Transcription prompt
+
+- **Everyday hardware** *(default)*: short, high-signal rules suited to 3B–4B models.
+- **Larger models**: richer formatting rules (multi-line alignment, matrices/`cases`, tables, look-alike disambiguation, margin reading order) for 8B+ models and GenAI Studio.
+  - **With Larger models: also write a short title and a detailed description for each figure**: enabled by default when **Larger models** is active; adds one extra pass per figure to produce a math-aware title (rendered in Page Cards caption bars) and a collapsible **Detailed description**.
+
+### Processing options
+
+| Setting | Default | What it does |
+|---|---|---|
+| **Image detail** | **Balanced (1344 px)** | Choose **Fast (1024 px)** for large clear writing or **High detail (1792 px)** for tiny subscripts and dense brace notes. |
+| **Boost contrast before reading** | On | Darkens faint pencil/pen ink and whitens paper while **preserving ink colors** (`red`, `green`, `blue`, `orange`, `purple`). |
+| **Ask the model where figures are when its list and the detected drawings disagree** | On | Helps align figure markers with actual drawing crops when page counts differ. |
+| **Redraw mathematical graphs as clean SVG when their equation is in the notes** | On | Automatically drafts crisp mathematical SVGs during conversion and checks curves against the original ink. |
+| **Split dense small-model pages or two-column handouts into bands before reading** | On | Splits tall dense pages or two-column layouts into overlapping strips before reading so small vision models don't skip lines or merge columns. |
+
+### Advanced settings & Prompt Inspector
+
+Under **Advanced**:
+- **Ollama URL**: keep `/ollama` unless connecting to a custom endpoint (`OLLAMA_ORIGINS` may be needed for direct cross-origin URLs).
+- **Context window (`num_ctx`)**: `8192` default; lower to `4096` to reduce RAM pressure on 8 GB machines.
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 - **Transcription prompt › Inspect or change**: view the active prompt, test temporary edits, check required format markers (`[[FIGURE: ...]]`, `[[note: term | words]]`, `$...$`), save named presets in your browser, and choose a custom prompt to load on startup. A **Custom prompt in use** banner always shows whenever a non-built-in prompt is active.
 
 ---
@@ -115,13 +156,21 @@ Under **Advanced**:
 
 ## 4. Converting
 
+<<<<<<< HEAD
 - **In the browser:** Click **Convert this page** or **Convert all** (`Waiting` status; **Cancel waiting** / **Stop** anytime). Re-converting an existing page keeps your previous version if cancelled or failed.
 - **Headless CLI (lowest memory on 8 GB machines):** Quit or close extra browser tabs, run `npm run convert -- notes/lecture05.pdf --8gb` in Terminal (uses ~150 MB of Node RAM, crops figures without auto-redraw by default for speed — add `--redraw` if you also want SVG redraws — and writes both `lecture05.ink2web.json` and `lecture05.html`), then click **Open** in the Web UI to review with Ollama stopped (**Review mode (offline)**). Model jobs always run one at a time.
+=======
+- **Convert this page** converts only the page you are looking at.
+- **Convert all** queues every unconverted page in order (`Waiting` status; click **Cancel waiting** to unqueue a page, or **Stop** to halt conversion).
+- **Convert again** re-runs conversion on a completed page (asks first because it replaces manual edits on that page; if re-conversion fails or is stopped, your previous version and edits are safely kept).
+- Model jobs run one at a time across conversion, **Re-read**, **Redraw**, and **Describe** so small GPUs/laptops never run out of memory.
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 
 ---
 
 ## 5. Reviewing and editing a page
 
+<<<<<<< HEAD
 ### Review Queue, Scan Spotlight, Loupe & Undo
 
 - **Review bar:** Whenever any converted page has `[illegible]` spots, LaTeX warnings, missing/uncertain alt text, or redraws flagged **Compare against sketch**, an amber bar at the top lists the count and lets you step through every item (`←` / `→` or `Alt+[` / `Alt+]`), open the exact block or figure, or resolve flagged redraws in one click (**Looks right** / **Keep image** / **Show both**).
@@ -145,6 +194,21 @@ Every paragraph, display equation block, and figure highlights on hover. Click a
 | Split one block into two or join adjacent blocks | **Split at cursor** / **Merge next** |
 | Undo toolbar formatting inside box | `⌘Z` / `Ctrl+Z` |
 
+=======
+### Click to edit (Preview mode)
+
+Every paragraph, display equation block, and figure highlights on hover. Click any block (or Tab to it and press Enter) to open the **in-place editor** with the Markup Toolbar above it and a live preview below it:
+
+| Action | Shortcut |
+|---|---|
+| Save edits & close block | **Done** or `⌘/Ctrl+Enter` |
+| Discard edits & close block | **Cancel** or `Esc` |
+| Wrap selection in `$...$` inline math | `$` button or `⌘/Ctrl+M` (or `$` key on selection) |
+| Wrap or format boxed equation (`\boxed{...}`) | **Box** button or `⌘/Ctrl+B` |
+| Underline text or `\underline{...}` inside math | **U** button or `⌘/Ctrl+U` |
+| Undo toolbar formatting | `⌘Z` / `Ctrl+Z` |
+
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 Clearing all text in a block and clicking **Done** removes that block. Switching to **Edit source** edits the entire page's Markdown/LaTeX at once.
 
 ### Re-read from image
@@ -239,7 +303,11 @@ Click any figure in the document, its crop box on the original image, or its bad
 
 ### Redrawing figures from the math
 
+<<<<<<< HEAD
 Ink2Web Lite 3.5.0 uses the **Clean-Slate Redraw v2** engine to turn hand-drawn calculus, ODE, signals/systems, and schematic diagrams into exact inline SVGs with computed alt text — while **always keeping your cropped original sketch one click away**. Check **Overlay sketch** (with the opacity slider) above the redrawn SVG to inspect your original handwriting transparently behind the computed plot. (If the page was transcribed with an OCR-only model such as `LightOnOCR-3`, switch the top-bar model to a general VLM like `qwen3.5:4b-mlx` or `ministral-3:3b` to run **Redraw with the model** in place.)
+=======
+Ink2Web Lite 3.3.0 uses the **Clean-Slate Redraw v2** engine to turn hand-drawn calculus, ODE, signals/systems, and schematic diagrams into exact inline SVGs with computed alt text — while **always keeping your cropped original sketch one click away**.
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 
 #### Automatic vs Manual Redraw
 
@@ -320,8 +388,12 @@ For the full syntax guide, see [docs/REDRAW.md](docs/REDRAW.md).
 | **"Cannot reach Ollama"** | Launch the Ollama app (or run `ollama serve`), then click **Refresh**. |
 | **"GenAI Studio refused the API key"** | Verify `GENAI_API_KEY` in `.env.local`, then restart `npm run dev`. |
 | **No vision models listed** | Pull `qwen3.5:4b-mlx` (Apple Silicon) or `qwen3-vl:4b-instruct`, then click **Refresh**. |
+<<<<<<< HEAD
 | **Very slow conversion / empty output** | On 8 GB Macs/PCs, a large **Context window** (`> 4096` with a 4B model) or **High detail** can push Ollama into swap — lower `num_ctx` to `4096`, pick **Fast (1024 px)** detail, or switch to a 2B–3B fallback model (`qwen3.5:2b-mlx`, `ministral-3:3b`). |
 | **`LightOnOCR-3` leaves `"Hand-drawn figure."` / skips auto-redraw** | `LightOnOCR-3` is OCR-only and cannot answer figure-description or Line-DSL redraw prompts. Edit the alt text yourself, or switch the top-bar model to `qwen3.5:4b-mlx` or `ministral-3:3b` and click **Describe with the model** / **Redraw with the model** on the figure. |
+=======
+| **Very slow conversion / empty output** | You may have selected a *thinking* model tag; switch to `-instruct` or `qwen3.5:4b-mlx`. On 8 GB Macs, try **Fast (1024 px)** detail or `num_ctx: 4096`. |
+>>>>>>> 2035e741849f59f0e03e1c92174722e9ce01ab9a
 | **Math shows raw `\(…\)` when opened offline** | Re-export with **Work offline** checked in the Export dialog. |
 | **Redrawn figure doesn't look right** | Open **Redraw from the math**, tweak bounds/expressions in **Scene & layer controls** or **Spec (Line-DSL or JSON)**, or switch **In the document** back to **Image** or **Both**. |
 | **Newer edits banner between tabs** | Click **Reload latest** to pull the newer tab's state, or **Keep and save this tab** if you want this tab's edits to win. |
