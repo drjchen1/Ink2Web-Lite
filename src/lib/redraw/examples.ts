@@ -191,4 +191,34 @@ export const EXAMPLES: { name: string; spec: object }[] = [
       trajectories: [{ start: [0, 1] }, { start: [0, 2.5] }, { start: [0, -2.5] }],
     },
   },
+  {
+    name: 'Slope: direction field with zero-isocline',
+    spec: {
+      kind: 'slope',
+      from: "y' = t - y",
+      slope: 't - y',
+      window: { x: [-3, 3], y: [-3, 3] },
+      show: ['field', 'isoclines'],
+      solutions: [{ start: [0, 1] }, { start: [0, -2] }],
+    },
+  },
+  {
+    name: 'Line: derivative sign chart',
+    spec: {
+      kind: 'line',
+      from: "f'(x) = (x + 2)(x - 1)",
+      window: { x: [-4, 3] },
+      signs: [{ on: ['-inf', -2], sign: '+' }, { on: [-2, 1], sign: '-' }, { on: [1, 'inf'], sign: '+' }],
+    },
+  },
+  {
+    name: 'Line: Laplace s-plane pole-zero plot',
+    spec: {
+      kind: 'line',
+      from: 'F(s) = \\frac{s + 1}{(s + 2)^2 + 4}',
+      zeros: [[-1, 0]],
+      poles: [[-2, 2], [-2, -2]],
+      roc: { gt: -2 },
+    },
+  },
 ];

@@ -18,15 +18,30 @@ import { parse } from './expr.ts';
 const num = { type: 'number' };
 const pair = { type: 'array', items: num };
 const str = { type: 'string' };
-const point = { type: 'object', properties: { at: pair, label: str } };
+const point = {
+  type: 'object',
+  properties: {
+    at: pair,
+    label: str,
+    fill: { enum: ['closed', 'open'] },
+    pos: { enum: ['above', 'below', 'left', 'right'] },
+  },
+};
+const tick = { type: 'object', properties: { at: num, label: str }, required: ['at'] };
 
 export const REDRAW_SCHEMA = {
   type: 'object',
   properties: {
-    kind: { enum: ['graph', 'region', 'phase', 'none'] },
+    kind: { enum: ['graph', 'region', 'phase', 'slope', 'line', 'none'] },
     from: str,
+    schematic: { type: 'boolean' },
+    params: {
+      type: 'array',
+      items: { type: 'object', properties: { name: str, value: num }, required: ['name', 'value'] },
+    },
     window: { type: 'object', properties: { x: pair, y: pair } },
     axes: { type: 'object', properties: { x: str, y: str } },
+    ticks: { type: 'object', properties: { x: { type: 'array', items: tick }, y: { type: 'array', items: tick } } },
     curves: {
       type: 'array',
       items: {
@@ -46,6 +61,7 @@ export const REDRAW_SCHEMA = {
         },
       },
     },
+    jumpGuides: { type: 'boolean' },
     impulses: { type: 'array', items: { type: 'object', properties: { at: num, size: num, label: str }, required: ['at'] } },
     top: str,
     bottom: str,
@@ -54,9 +70,35 @@ export const REDRAW_SCHEMA = {
     between: pair,
     slice: { type: 'object', properties: { at: num, label: str } },
     system: { type: 'object', properties: { x: str, y: str } },
-    show: { type: 'array', items: { enum: ['field', 'equilibria', 'nullclines', 'eigenvectors'] } },
+    slope: str,
+    show: { type: 'array', items: { enum: ['field', 'equilibria', 'nullclines', 'eigenvectors', 'isoclines'] } },
     trajectories: { type: 'array', items: { type: 'object', properties: { start: pair } } },
+    solutions: { type: 'array', items: { type: 'object', properties: { start: pair, direction: { enum: ['both', 'forward', 'backward'] }, label: str } } },
+    intervals: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          on: { type: 'array', items: { anyOf: [num, str] } },
+          ends: { type: 'array', items: { enum: ['closed', 'open'] } },
+          label: str,
+        },
+        required: ['on'],
+      },
+    },
+    signs: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { on: { type: 'array', items: { anyOf: [num, str] } }, sign: { enum: ['+', '-', '0', 'undef'] } },
+        required: ['on', 'sign'],
+      },
+    },
+    poles: { type: 'array', items: pair },
+    zeros: { type: 'array', items: pair },
+    roc: { type: 'object', properties: { gt: num, lt: num } },
     points: { type: 'array', items: point },
+    labels: { type: 'array', items: { type: 'object', properties: { at: pair, text: str }, required: ['at', 'text'] } },
   },
   required: ['kind', 'from'],
 };
@@ -105,11 +147,13 @@ Write the figure's mathematics as JSON so the app can redraw it exactly. Take th
 
 If the notes don't give an equation or system that this figure shows, answer {"kind": "none", "from": ""}.
 
-Three kinds:
+Five kinds:
 
 1. "graph": the graph of a function given in the notes.
 {"kind": "graph", "from": "y = e^{-t/2}\\\\cos(3t)", "window": {"x": [0, 8], "y": [-1, 1]}, "axes": {"x": "t", "y": "y"}, "curves": [{"expr": "exp(-t/2)*cos(3t)", "label": "y(t)"}]}
-A piecewise function is one curve with pieces: {"pieces": [{"expr": "0", "on": [0, 2], "ends": ["closed", "open"]}, {"expr": "1", "on": [2, 5]}]}
+A piecewise function is one curve with pieces: {"pieces": [{"expr": "0", "on": [0, 2], "ends": ["closed", "open"]}, {"expr": "1", "on": [2, 5]}]}. Add "jumpGuides": true if dashed vertical lines connect jumps.
+Use u(t - c) for u_c(t). When the axis marks an unspecified constant like c > 0, pick a sample value: "params": [{"name": "c", "value": 2}], "window": {"x": [0, 4], "y": [-0.5, 1.5]}.
+For an illustrative curve f(t) vs shifted f(t - c) without an explicit formula, use "schematic": true with expressions "f(t)" and "f(t - c)".
 An impulse δ(t − 3) is "impulses": [{"at": 3}].
 
 2. "region": a shaded region between curves (areas, integrals).
@@ -119,6 +163,13 @@ Leave out "between" to end the region where the curves meet; otherwise "between"
 3. "phase": the phase plane of a system x' = f(x, y), y' = g(x, y).
 {"kind": "phase", "from": "x' = y,\\\\; y' = -2x - 3y", "system": {"x": "y", "y": "-2*x - 3*y"}, "window": {"x": [-3, 3], "y": [-3, 3]}, "trajectories": [{"start": [2, 0]}]}
 Always write the system with the letters x and y, and put the author's letters in "axes", for example {"x": "u", "y": "v"}. Give one start point on each curve drawn. Add "show": ["field", "equilibria", "nullclines"] only for what is drawn.
+
+4. "slope": a 1D ODE direction (slope) field y' = f(t, y) with optional solution curves.
+{"kind": "slope", "from": "y' = t - y", "slope": "t - y", "window": {"x": [-3, 3], "y": [-3, 3]}, "solutions": [{"start": [0, 1]}]}
+
+5. "line": a number line / derivative sign chart, or a complex s-plane pole-zero plot.
+{"kind": "line", "from": "f'(x) = (x + 2)(x - 1)", "signs": [{"on": ["-inf", -2], "sign": "+"}, {"on": [-2, 1], "sign": "-"}, {"on": [1, "inf"], "sign": "+"}]}
+For s-plane plots, give "poles": [[re, im], ...] (×), "zeros": [[re, im], ...] (○), and optional "roc": {"gt": -1}.
 
 Rules:
 - "from" is the equation copied from the notes, in LaTeX.
@@ -143,11 +194,13 @@ Fix these problems and answer with the corrected JSON only. If the notes don't g
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-const SHARED = ['kind', 'from', 'window', 'axes', 'ticks', 'points', 'labels'];
+const SHARED = ['kind', 'from', 'params', 'schematic', 'window', 'axes', 'ticks', 'points', 'labels'];
 const FIELDS: Record<string, string[]> = {
-  graph: [...SHARED, 'curves', 'impulses'],
+  graph: [...SHARED, 'curves', 'impulses', 'jumpGuides'],
   region: [...SHARED, 'top', 'bottom', 'left', 'right', 'between', 'slice'],
   phase: [...SHARED, 'system', 'show', 'trajectories', 'vars'],
+  slope: [...SHARED, 'slope', 'show', 'solutions', 'vars'],
+  line: [...SHARED, 'intervals', 'signs', 'poles', 'zeros', 'roc'],
 };
 
 /** Drops empty strings, arrays, and objects, recursively. */
@@ -176,6 +229,10 @@ export function cleanExpr(e: string): string {
     .replace(/\\cdot|\\times/g, '*')
     .replace(/\\(sin|cos|tan|ln|exp|sqrt|pi)\b/g, '$1')
     .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '($1)/($2)')
+    .replace(/\b([uH])_(?:\{([^{}]+)\}|([A-Za-z0-9.]+))\s*\(\s*([A-Za-z])\s*\)/g, (_, fn: string, g1?: string, g2?: string, v?: string) => {
+      const c = (g1 ?? g2 ?? '').trim();
+      return c === '0' ? `${fn}(${v})` : `${fn}(${v} - ${c})`;
+    })
     .replace(/[{}]/g, (c) => (c === '{' ? '(' : ')'))
     .replace(/\$/g, '')
     .trim();
@@ -221,7 +278,7 @@ export function tidyModelSpec(answer: string): Obj | 'none' | null {
       if (Array.isArray(c.pieces)) for (const p of c.pieces as Obj[]) if (isObj(p)) p.expr = fix(p.expr);
       if (c.pieces && c.expr) delete c.expr;
     }
-  for (const k of ['top', 'bottom', 'left', 'right']) if (spec[k] !== undefined) spec[k] = fix(spec[k]);
+  for (const k of ['top', 'bottom', 'left', 'right', 'slope']) if (spec[k] !== undefined) spec[k] = fix(spec[k]);
   // Phase: the system is in x and y; the author's letters are only labels.
   if (kind === 'phase' && isObj(spec.system)) {
     const sys = spec.system as Obj;
@@ -275,7 +332,7 @@ export function formatSpec(spec: unknown, indent = 0, width = 76, lead = 0): str
 }
 
 /** Starting points for writing a spec by hand. */
-export const TEMPLATES: Record<'graph' | 'region' | 'phase', object> = {
+export const TEMPLATES: Record<'graph' | 'region' | 'phase' | 'slope' | 'line', object> = {
   graph: {
     kind: 'graph',
     from: 'y = e^{-t}\\cos(2t)',
@@ -298,5 +355,19 @@ export const TEMPLATES: Record<'graph' | 'region' | 'phase', object> = {
     window: { x: [-3, 3], y: [-3, 3] },
     show: ['field', 'equilibria'],
     trajectories: [{ start: [2, 0] }],
+  },
+  slope: {
+    kind: 'slope',
+    from: "y' = t - y",
+    slope: 't - y',
+    window: { x: [-3, 3], y: [-3, 3] },
+    show: ['field', 'isoclines'],
+    solutions: [{ start: [0, 1] }],
+  },
+  line: {
+    kind: 'line',
+    from: 's^2 + 2s + 5 = 0',
+    poles: [[-1, 2], [-1, -2]],
+    roc: { gt: -1 },
   },
 };

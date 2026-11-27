@@ -164,7 +164,7 @@ export function checkRegion(raw: Obj, m: Messages): RegionSpec | null {
       return null;
     }
     const src = r === undefined ? dflt : isObj(r) ? r.expr : r;
-    const c = compileExpr(src, v, role, m);
+    const c = compileExpr(src, v, role, m, common.params);
     return c ? { ...c, role, label: isObj(r) ? str(r.label) : null } : null;
   };
   let hi = boundary(hiRole, null);

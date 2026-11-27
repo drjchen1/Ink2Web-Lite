@@ -6,10 +6,12 @@ interface Props {
   label: string;
   /** Called with a block's index when the user clicks it or presses Enter on it. */
   onBlock?: (index: number) => void;
+  /** Called when hovering over a clickable block (powers scan spotlight). */
+  onHoverBlock?: (index: number | null) => void;
 }
 
 /** Renders generated HTML and typesets it. Reports MathJax parse errors. */
-export function Preview({ html, label, onBlock }: Props) {
+export function Preview({ html, label, onBlock, onHoverBlock }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [errors, setErrors] = useState(0);
 
@@ -64,6 +66,8 @@ export function Preview({ html, label, onBlock }: Props) {
         tabIndex={0}
         onClick={onClick}
         onKeyDown={onKeyDown}
+        onMouseOver={onHoverBlock ? (e) => onHoverBlock(blockOf(e.target)) : undefined}
+        onMouseLeave={onHoverBlock ? () => onHoverBlock(null) : undefined}
       />
     </div>
   );

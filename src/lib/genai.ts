@@ -77,9 +77,9 @@ async function request(url: string, init: RequestInit, onWait?: (seconds: number
   }
 }
 
-/** Parameter count in billions from a model id ("qwen3.8:27b" -> 27), or null. */
+/** Parameter count in billions from a model id ("qwen3.8:27b" -> 27, "gemma4:e2b" -> 2), or null. */
 export function paramsB(id: string): number | null {
-  const m = id.match(/(?:^|[^a-z0-9.])(\d+(?:\.\d+)?)\s*b(?![a-z])/i);
+  const m = id.match(/(?:^|[^a-z0-9.]|\be)(\d+(?:\.\d+)?)\s*b(?![a-z])/i);
   return m ? Number(m[1]) : null;
 }
 
@@ -111,8 +111,10 @@ export function toModelInfos(json: unknown): ModelInfo[] {
     .sort((a, b) => Number(b.vision === true) - Number(a.vision === true) || a.name.localeCompare(b.name));
 }
 
-export async function listModels(baseUrl: string): Promise<ModelInfo[]> {
-  const res = await request(`${trimSlash(baseUrl)}/api/models`, {}, undefined, 2);
+export async function listModels(baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
+  const headers: Record<string, string> = {};
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const res = await request(`${trimSlash(baseUrl)}/api/models`, { headers }, undefined, 2);
   return toModelInfos(await res.json());
 }
 
@@ -170,12 +172,14 @@ export function parseSse(lines: string[]): { chunks: string[]; done: boolean } {
 /** Streams a chat completion and resolves with the full text (same contract as ollama.chat). */
 export async function chat(req: ChatRequest): Promise<string> {
   const url = `${trimSlash(req.baseUrl)}/api/chat/completions`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (req.apiKey) headers.Authorization = `Bearer ${req.apiKey}`;
   const send = (withFormat: boolean) =>
     request(
       url,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(toOpenAIBody(req, withFormat)),
         signal: req.signal,
       },

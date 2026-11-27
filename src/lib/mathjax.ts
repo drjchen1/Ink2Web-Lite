@@ -8,6 +8,7 @@
  * vite.config.ts copies it to assets/input/tex/extensions/.
  */
 import mathjaxUrl from 'mathjax/es5/tex-svg.js?url';
+import { finalizeOfflineHtml } from './exportHtml.ts';
 
 interface MathJaxApi {
   typesetPromise: (els?: Element[]) => Promise<void>;
@@ -33,6 +34,7 @@ function load(): Promise<MathJaxApi> {
           inlineMath: [['\\(', '\\)']],
           displayMath: [['\\[', '\\]']],
         },
+        options: { menuOptions: { settings: { assistiveMml: true } } },
         svg: { fontCache: 'global' },
         startup: { typeset: false },
       };
@@ -64,4 +66,30 @@ export function typeset(el: HTMLElement): Promise<number> {
   });
   queue = job.catch(() => undefined);
   return job;
+}
+
+/**
+ * Pre-renders every equation in an exported HTML document using the local MathJax
+ * SVG build (with assistive MathML intact), returning a standalone offline file.
+ */
+export async function prerenderOfflineHtml(docHtml: string): Promise<string> {
+  const m = docHtml.match(/<main[^>]*>([\s\S]*?)<\/main>/);
+  if (!m) return docHtml;
+  const host = document.createElement('div');
+  host.setAttribute('style', 'position:fixed;left:-99999px;top:0;visibility:hidden;pointer-events:none');
+  host.innerHTML = m[1];
+  document.body.appendChild(host);
+  try {
+    await typeset(host);
+    host.querySelectorAll('mjx-container[display="true"]').forEach((el) => {
+      el.setAttribute('tabindex', '0');
+      el.setAttribute('role', 'group');
+      el.setAttribute('aria-label', 'Mathematical equation');
+    });
+    const mjxCss = document.getElementById('MJX-SVG-styles')?.textContent ?? '';
+    const cacheSvg = document.getElementById('MJX-SVG-global-cache')?.outerHTML ?? '';
+    return finalizeOfflineHtml(docHtml, host.innerHTML, mjxCss, cacheSvg);
+  } finally {
+    host.remove();
+  }
 }

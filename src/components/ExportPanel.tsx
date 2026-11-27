@@ -15,15 +15,18 @@ interface Props {
   sourceFile: string | null;
   linkSource: boolean;
   onLinkSource: (on: boolean) => void;
+  offlineMath: boolean;
+  onOfflineMath: (on: boolean) => void;
+  exporting?: boolean;
   onDownload: () => void;
-  /** Close the dialog and show this page (and figure). */
-  onGoTo: (pageId: string, figure?: number) => void;
+  /** Close the dialog and show this page (and figure or block). */
+  onGoTo: (pageId: string, figure?: number, block?: number) => void;
 }
 
 /** The export step (2.1): a checklist of what still needs a look, then Download. */
 export function ExportPanel(props: Props) {
   const { pages, titleFromHeading, pageMarkers, onPageMarkers, onDownload, onGoTo } = props;
-  const { look, onLook, sourceFile, linkSource, onLinkSource } = props;
+  const { look, onLook, sourceFile, linkSource, onLinkSource, offlineMath, onOfflineMath, exporting } = props;
   const done = pages.filter((p) => p.status === 'done');
   const notDone = pages.length - done.length;
   const items = done.flatMap((p) => pageIssues(p).map((issue) => ({ page: p, n: pages.indexOf(p) + 1, issue })));
@@ -48,7 +51,7 @@ export function ExportPanel(props: Props) {
         <ul className="checklist">
           {items.map(({ page, n, issue }, k) => (
             <li key={k}>
-              <button type="button" className="link" onClick={() => onGoTo(page.id, issue.figure)}>
+              <button type="button" className="link" onClick={() => onGoTo(page.id, issue.figure, issue.block)}>
                 Page {n}
               </button>
               :{' '}
@@ -90,10 +93,14 @@ export function ExportPanel(props: Props) {
             {sourceFile}) at the top. Put that file in the same folder as the HTML.
           </label>
         )}
+        <label>
+          <input type="checkbox" checked={offlineMath} onChange={(e) => onOfflineMath(e.target.checked)} /> Work offline
+          (pre-render equations into the file so no internet connection is needed to view)
+        </label>
       </div>
       <div className="actions">
-        <button type="button" className="primary" onClick={onDownload} disabled={!done.length}>
-          Download HTML
+        <button type="button" className="primary" onClick={onDownload} disabled={!done.length || exporting}>
+          {exporting ? 'Preparing offline equations…' : 'Download HTML'}
         </button>
       </div>
     </div>

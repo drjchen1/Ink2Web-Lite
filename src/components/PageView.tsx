@@ -1,17 +1,29 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Box, Figure, Page } from '../types.ts';
-import { pageHtml, wrapEndLines } from '../lib/exportHtml.ts';
-import { blockText, pageIssues, commitBlock, moveAltToNotes, pageBlocks, splitBlocks, type Block } from '../lib/editing.ts';
+import { pageHtml, wrapEndLines, type ExportLook } from '../lib/exportHtml.ts';
+import {
+  blockText,
+  commitBlock,
+  estimateBlockBands,
+  mergeBlockWithNext,
+  moveAltToNotes,
+  pageBlocks,
+  pageIssues,
+  shortcutMark,
+  splitBlocks,
+  type Block,
+} from '../lib/editing.ts';
 import { latexWarnings } from '../lib/markdown.ts';
 import { cropFigure, pageLayout, snapToInk } from '../lib/images.ts';
-import { defaultLayout, overlapRatio } from '../lib/layout.ts';
+import { defaultLayout, overlapRatio, type TextLine } from '../lib/layout.ts';
+import { EMPTY_HISTORY, pushHistory, redoHistory, snapshotsEqual, undoHistory, type HistoryState, type PageSnapshot } from '../lib/history.ts';
 import { besideUnitCount, placeOne } from '../lib/placement.ts';
 import { markerUnitIndex, moveMarker, nextFigureId, sourceUnits } from '../lib/transcript.ts';
 import { figureRows, fitWidths, placeAfter, previousFigure } from '../lib/figureRows.ts';
 import { CropCanvas } from './CropCanvas.tsx';
 import { Preview } from './Preview.tsx';
 import { BlockEditor } from './BlockEditor.tsx';
-import { MarkupToolbar } from './MarkupToolbar.tsx';
+import { MarkupToolbar, applyMarkToTextarea } from './MarkupToolbar.tsx';
 import { FigurePanel } from './FigurePanel.tsx';
 import type { RedrawOutcome } from '../lib/redraw/conversation.ts';
 import type { FigureDescription } from '../lib/describe.ts';
@@ -38,8 +50,11 @@ interface Props {
   canConvert: boolean;
   /** The model is in use (a conversion or a re-read); the other kind of job waits. */
   busy: 'converting' | 'rereading' | null;
-  /** Open this figure's panel (from the export checklist). `n` changes on every request. */
+  /** Open this figure's panel (from the export checklist or Review bar). `n` changes on every request. */
   focusFigure: { id: number; n: number } | null;
+  /** Open this text block editor (from the export checklist or Review bar). `n` changes on every request. */
+  focusBlockRequest?: { id: number; n: number } | null;
+  look?: ExportLook;
   onUpdate: (id: string, patch: Partial<Page>) => void;
   /** Converts this page only (now, or after the page being converted). */
   onConvert: (id: string) => void;
@@ -87,8 +102,26 @@ function useDebounced<T>(value: T, ms: number): T {
  * document on the right. Text blocks and figures open in place when clicked.
  */
 export const PageView = memo(function PageView(props: Props) {
-  const { page, index, count, liveText, canConvert, busy, focusFigure, onUpdate, onConvert, onUnqueue, onRemove, onMove, onGo, onReread, onRedraw, onDescribe } =
-    props;
+  const {
+    page,
+    index,
+    count,
+    liveText,
+    canConvert,
+    busy,
+    focusFigure,
+    focusBlockRequest,
+    look = 'classic',
+    onUpdate,
+    onConvert,
+    onUnqueue,
+    onRemove,
+    onMove,
+    onGo,
+    onReread,
+    onRedraw,
+    onDescribe,
+  } = props;
   const pageNo = index + 1;
   const [tab, setTab] = useState<'preview' | 'edit'>('preview');
   /** The figure whose panel is open (its crop box is editable on the image). */
@@ -97,9 +130,18 @@ export const PageView = memo(function PageView(props: Props) {
   const [note, setNote] = useState('');
   const [editing, setEditing] = useState<Editing | null>(null);
   const [reread, setReread] = useState<Reread | null>(null);
+  const [hoverBlock, setHoverBlock] = useState<number | null>(null);
+  const [loupe, setLoupe] = useState(false);
+  const [scanLines, setScanLines] = useState<TextLine[]>([]);
+  const [history, setHistory] = useState<HistoryState>(EMPTY_HISTORY);
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  const pendingBase = useRef<PageSnapshot | null>(null);
+  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rereadAbort = useRef<AbortController | null>(null);
   const reviewRef = useRef<HTMLTextAreaElement>(null);
   const srcRef = useRef<HTMLTextAreaElement>(null);
+  const imgColRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLElement>(null);
   /** Block to focus after the preview re-renders (returning from the block editor). */
   const focusBlock = useRef<number | null>(null);
@@ -115,11 +157,14 @@ export const PageView = memo(function PageView(props: Props) {
   editingRef.current = editing;
 
   const source = useDebounced(page.source, 250);
-  const pb = useMemo(() => pageBlocks({ source, figures: page.figures }, pageNo, hintId), [page.figures, source, pageNo, hintId]);
+  const pb = useMemo(() => pageBlocks({ source, figures: page.figures }, pageNo, hintId, look), [page.figures, source, pageNo, hintId, look]);
+  const bands = useMemo(() => estimateBlockBands(source, page.figures, scanLines), [source, page.figures, scanLines]);
+  const spotlightIdx = editing ? editing.i : hoverBlock;
+  const spotlight = spotlightIdx !== null ? (bands[spotlightIdx] ?? null) : null;
   // Under "Edit source" the preview isn't clickable, so it's rendered exactly like the export.
   const plainHtml = useMemo(
-    () => (tab === 'edit' ? pageHtml({ ...page, source }, pageNo) : ''),
-    [tab, page.figures, source, pageNo],
+    () => (tab === 'edit' ? pageHtml({ ...page, source }, pageNo, undefined, look) : ''),
+    [tab, page.figures, source, pageNo, look],
   );
   const warnings = useMemo(() => latexWarnings(source), [source]);
   const positions = useMemo(() => markerUnitIndex(page.source), [page.source]);
@@ -130,11 +175,122 @@ export const PageView = memo(function PageView(props: Props) {
     [page.figures],
   );
 
-  // A conversion replaces the page, so close whatever is open.
+  // Extract ink line Y positions once per page blob to anchor scan spotlight bands.
+  useEffect(() => {
+    let live = true;
+    pageLayout(page.image)
+      .then((l) => live && setScanLines(l.lines))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [page.image]);
+
+  // Auto-scroll the sticky original scan to match the currently opened block.
+  useEffect(() => {
+    if (!editing || !imgColRef.current) return;
+    const band = bands[editing.i];
+    if (!band) return;
+    const col = imgColRef.current;
+    const img = col.querySelector<HTMLElement>('.crop img');
+    if (!img || !img.offsetHeight) return;
+    const midY = ((band.y0 + band.y1) / 2) * img.offsetHeight + img.offsetTop;
+    const targetScroll = Math.max(0, midY - col.clientHeight * 0.42);
+    col.scrollTo({ top: targetScroll, behavior: 'smooth' });
+  }, [editing?.i]);
+
+  /** Applies a user-visible page update while recording a bounded Undo/Redo snapshot. */
+  const applyPageEdit = (patch: Partial<Page>, coalesceMs = 0) => {
+    const prevSnap: PageSnapshot = { source: latest.current.source, figures: latest.current.figures };
+    const nextSnap: PageSnapshot = {
+      source: patch.source ?? prevSnap.source,
+      figures: patch.figures ?? prevSnap.figures,
+    };
+    if (!snapshotsEqual(prevSnap, nextSnap)) {
+      if (coalesceMs > 0) {
+        if (!pendingBase.current) pendingBase.current = prevSnap;
+        if (pendingTimer.current) clearTimeout(pendingTimer.current);
+        pendingTimer.current = setTimeout(() => {
+          const base = pendingBase.current;
+          pendingBase.current = null;
+          pendingTimer.current = null;
+          if (base) {
+            const curSnap: PageSnapshot = { source: latest.current.source, figures: latest.current.figures };
+            setHistory((h) => pushHistory(h, base, curSnap));
+          }
+        }, coalesceMs);
+      } else {
+        if (pendingTimer.current) {
+          clearTimeout(pendingTimer.current);
+          pendingTimer.current = null;
+        }
+        const base = pendingBase.current ?? prevSnap;
+        pendingBase.current = null;
+        setHistory((h) => pushHistory(h, base, nextSnap));
+      }
+    }
+    onUpdate(page.id, patch);
+  };
+
+  const undo = () => {
+    if (pendingTimer.current) {
+      clearTimeout(pendingTimer.current);
+      pendingTimer.current = null;
+    }
+    pendingBase.current = null;
+    const cur: PageSnapshot = { source: latest.current.source, figures: latest.current.figures };
+    const res = undoHistory(historyRef.current, cur);
+    if (!res) return;
+    setHistory(res.history);
+    setEditing(null);
+    onUpdate(page.id, { source: res.snapshot.source, figures: res.snapshot.figures });
+    setNote('Undid last change on this page.');
+  };
+
+  const redo = () => {
+    const cur: PageSnapshot = { source: latest.current.source, figures: latest.current.figures };
+    const res = redoHistory(historyRef.current, cur);
+    if (!res) return;
+    setHistory(res.history);
+    setEditing(null);
+    onUpdate(page.id, { source: res.snapshot.source, figures: res.snapshot.figures });
+    setNote('Redid change on this page.');
+  };
+
+  // Page-wide Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z when focus isn't inside a native text field.
+  useEffect(() => {
+    const onWinKey = (e: globalThis.KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const t = document.activeElement as HTMLElement | null;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) {
+        if (historyRef.current.past.length) {
+          e.preventDefault();
+          undo();
+        }
+      } else if ((k === 'z' && e.shiftKey) || (k === 'y' && !e.shiftKey)) {
+        if (historyRef.current.future.length) {
+          e.preventDefault();
+          redo();
+        }
+      }
+    };
+    window.addEventListener('keydown', onWinKey);
+    return () => window.removeEventListener('keydown', onWinKey);
+  }, []);
+
+  // A conversion replaces the page, so close whatever is open and clear per-page undo history.
   useEffect(() => {
     if (working) {
       setEditing(null);
       setActive(null);
+      setHistory(EMPTY_HISTORY);
+      if (pendingTimer.current) {
+        clearTimeout(pendingTimer.current);
+        pendingTimer.current = null;
+      }
+      pendingBase.current = null;
     }
   }, [working]);
 
@@ -149,6 +305,7 @@ export const PageView = memo(function PageView(props: Props) {
   // Leaving the page (another page, removed, restored): keep an open edit, stop a re-read.
   useEffect(
     () => () => {
+      if (pendingTimer.current) clearTimeout(pendingTimer.current);
       rereadAbort.current?.abort();
       const e = editingRef.current;
       if (e && e.text !== e.original) {
@@ -179,7 +336,7 @@ export const PageView = memo(function PageView(props: Props) {
     const cur = latest.current.source;
     if (!editing) return cur;
     const next = editing.text === editing.original ? cur : commitBlock(cur, editing.block, editing.original, editing.text);
-    if (next !== cur) onUpdate(page.id, { source: next });
+    if (next !== cur) applyPageEdit({ source: next });
     setEditing(null);
     return next;
   };
@@ -193,10 +350,17 @@ export const PageView = memo(function PageView(props: Props) {
     if (id !== null) setNote(`Figure ${id} open. Its crop box is selected on the original page.`);
   };
 
-  // Requests from outside the page (the export checklist).
+  // Requests from outside the page (the export checklist or Review bar).
   useEffect(() => {
     if (focusFigure && page.figures.some((f) => f.id === focusFigure.id)) selectFigure(focusFigure.id, true);
   }, [focusFigure?.n]);
+
+  useEffect(() => {
+    if (focusBlockRequest) {
+      setTab('preview');
+      openBlock(focusBlockRequest.id);
+    }
+  }, [focusBlockRequest?.n]);
 
   /** Opens block i (of the page as currently rendered): text in the block editor, a figure in its panel. */
   const openBlock = (i: number) => {
@@ -285,19 +449,21 @@ export const PageView = memo(function PageView(props: Props) {
 
   /* ---------- figures ---------- */
 
-  const patchFigure = (id: number, patch: Partial<Figure>) =>
-    onUpdate(page.id, { figures: latest.current.figures.map((f) => (f.id === id ? { ...f, ...patch } : f)) });
+  const patchFigure = (id: number, patch: Partial<Figure>, coalesceMs = 0) =>
+    applyPageEdit({ figures: latest.current.figures.map((f) => (f.id === id ? { ...f, ...patch } : f)) }, coalesceMs);
 
   // Re-crop shortly after the box stops changing.
   const cropTimers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   const setBox = (id: number, box: Box) => {
-    patchFigure(id, { box, needsReview: false });
+    patchFigure(id, { box, needsReview: false }, 350);
     clearTimeout(cropTimers.current.get(id));
     cropTimers.current.set(
       id,
       setTimeout(async () => {
         const src = await cropFigure(page.image, box);
-        if (latest.current.figures.find((f) => f.id === id)?.box === box) patchFigure(id, { src });
+        if (latest.current.figures.find((f) => f.id === id)?.box === box) {
+          onUpdate(page.id, { figures: latest.current.figures.map((f) => (f.id === id ? { ...f, src } : f)) });
+        }
       }, 200),
     );
   };
@@ -314,7 +480,7 @@ export const PageView = memo(function PageView(props: Props) {
     const newSource = found ? placeOne(p.source, { id, box }, p.figures, layout.lines) : `${p.source.trimEnd()}\n\n[[FIGURE ${id}]]\n`;
     const look = defaultLayout(box, layout.lines);
     if (look.wrap) look.besideLines = besideUnitCount(newSource, { id, box }, layout.lines);
-    onUpdate(p.id, {
+    applyPageEdit({
       source: newSource,
       figures: [...p.figures, { id, box, alt: '', caption: '', src, needsReview: true, autoDetected: !!found, ...look }],
     });
@@ -331,7 +497,7 @@ export const PageView = memo(function PageView(props: Props) {
     // The figure after it in a row no longer has its partner; don't let it join another one.
     const row = figureRows(p.source, p.figures).find((r) => r.includes(id));
     const after = row && row.indexOf(id) + 1 < row.length ? row[row.indexOf(id) + 1] : null;
-    onUpdate(page.id, {
+    applyPageEdit({
       figures: p.figures.filter((f) => f.id !== id).map((f) => (f.id === after ? { ...f, besidePrevious: false } : f)),
       source: p.source.replace(new RegExp(`\\n*\\[\\[\\s*FIGURE\\s+${id}\\s*\\]\\]\\n*`, 'gi'), '\n\n').trim(),
     });
@@ -345,7 +511,7 @@ export const PageView = memo(function PageView(props: Props) {
     const row = figureRows(p.source, p.figures).find((r) => r.includes(id));
     const leave = new Set([id]);
     if (row && row.indexOf(id) + 1 < row.length) leave.add(row[row.indexOf(id) + 1]);
-    onUpdate(page.id, {
+    applyPageEdit({
       source: moveMarker(p.source, id, dir),
       figures: p.figures.map((f) => (leave.has(f.id) && f.besidePrevious ? { ...f, besidePrevious: false } : f)),
     });
@@ -368,7 +534,7 @@ export const PageView = memo(function PageView(props: Props) {
     const figs = p.figures.map((f) => (f.id === id ? { ...f, besidePrevious: true } : f));
     const row = figureRows(source, figs).find((r) => r.includes(id)) ?? [prev.id, id];
     const widths = fitWidths(row.map((r) => figs.find((f) => f.id === r)?.width ?? 50));
-    onUpdate(page.id, {
+    applyPageEdit({
       source,
       figures: figs.map((f) => (row.includes(f.id) ? { ...f, width: widths[row.indexOf(f.id)], wrap: false } : f)),
     });
@@ -383,7 +549,7 @@ export const PageView = memo(function PageView(props: Props) {
   const moveToNotes = (f: Figure, ta: HTMLTextAreaElement | null) => {
     const r = moveAltToNotes(latest.current.source, f.id, f.alt, ta?.selectionStart ?? 0, ta?.selectionEnd ?? 0);
     if (!r.moved) return;
-    onUpdate(page.id, {
+    applyPageEdit({
       source: r.source,
       figures: latest.current.figures.map((x) =>
         // The moved sentence was written beside the drawing: keep it beside a wrapped figure.
@@ -406,13 +572,13 @@ export const PageView = memo(function PageView(props: Props) {
       pos={positions.get(activeFig.id)}
       unitCount={unitCount}
       focusAlt={focusAlt}
-      onPatch={(patch) => patchFigure(activeFig.id, patch)}
+      onPatch={(patch) => patchFigure(activeFig.id, patch, 350)}
       onMove={(dir) => moveFigure(activeFig.id, dir)}
       prevFigure={previousFigure(page.source, activeFig.id)}
       row={activeRow ?? null}
       onBeside={(on) => setBeside(activeFig.id, on)}
       onSnap={async () => setBox(activeFig.id, await snapToInk(page.image, activeFig.box))}
-      onInsert={() => onUpdate(page.id, { source: `${latest.current.source.trimEnd()}\n\n[[FIGURE ${activeFig.id}]]\n` })}
+      onInsert={() => applyPageEdit({ source: `${latest.current.source.trimEnd()}\n\n[[FIGURE ${activeFig.id}]]\n` })}
       onDelete={() => removeFigure(activeFig.id)}
       onMoveToNotes={(ta) => moveToNotes(activeFig, ta)}
       onRedraw={(signal) => {
@@ -433,6 +599,7 @@ export const PageView = memo(function PageView(props: Props) {
             : ''
       }
       onClose={closeFigure}
+      look={look}
     />
   );
 
@@ -500,6 +667,15 @@ export const PageView = memo(function PageView(props: Props) {
         <button type="button" className="chip" onClick={addFigure}>
           + Add
         </button>
+        <button
+          type="button"
+          className="chip loupe-toggle"
+          aria-pressed={loupe}
+          onClick={() => setLoupe((l) => !l)}
+          title="Magnify handwriting under cursor (2.2×), or hold Alt while pointing"
+        >
+          Loupe
+        </button>
       </div>
     )
   );
@@ -509,6 +685,7 @@ export const PageView = memo(function PageView(props: Props) {
   const splitAt = editing ? editing.i : figBlock >= 0 ? figBlock : null;
   const before = splitAt !== null ? pb.html.slice(0, splitAt).join('') : '';
   const after = splitAt !== null ? pb.html.slice(splitAt + 1).join('') + pb.tail : pb.html.join('') + pb.tail;
+  const canMergeNext = editing ? editing.i + 1 < pb.blocks.length && pb.blocks[editing.i + 1].fig === undefined : false;
 
   const openInPlace = editing ? (
     <>
@@ -517,8 +694,32 @@ export const PageView = memo(function PageView(props: Props) {
         onText={(text) => setEditing((e) => (e ? { ...e, text } : e))}
         onDone={finishEdit}
         onCancel={cancelEdit}
+        onSplit={(left, right) => {
+          const next = commitBlock(latest.current.source, editing.block, editing.original, `${left}\n\n${right}`);
+          applyPageEdit({ source: next });
+          setEditing(null);
+          setNote('Split block into two separate parts.');
+        }}
+        onMergeNext={
+          canMergeNext
+            ? () => {
+                const cur =
+                  editing.text === editing.original
+                    ? latest.current.source
+                    : commitBlock(latest.current.source, editing.block, editing.original, editing.text);
+                const blocks = splitBlocks(cur, wrapEndLines(cur, latest.current.figures));
+                const merged = mergeBlockWithNext(cur, blocks, editing.i);
+                if (merged !== null) {
+                  applyPageEdit({ source: merged });
+                  setEditing(null);
+                  setNote('Merged with the next block.');
+                }
+              }
+            : undefined
+        }
         figures={page.figures}
         pageNo={pageNo}
+        look={look}
       />
       {!reread ? (
         <div className="reread-action">
@@ -633,7 +834,7 @@ export const PageView = memo(function PageView(props: Props) {
       </p>
 
       <div className="page-body">
-        <div className="col-image">
+        <div className="col-image" ref={imgColRef}>
           {imageTools}
           <CropCanvas
             src={page.url}
@@ -645,6 +846,8 @@ export const PageView = memo(function PageView(props: Props) {
             selecting={reread?.phase === 'select'}
             selection={reread?.box ?? null}
             onSelection={(box) => setReread((r) => r && { ...r, box, error: '' })}
+            spotlight={spotlight}
+            loupe={loupe}
           />
         </div>
 
@@ -687,6 +890,26 @@ export const PageView = memo(function PageView(props: Props) {
                     Edit source
                   </button>
                 </div>
+                <div className="actions undo-group">
+                  <button
+                    type="button"
+                    disabled={!history.past.length}
+                    onClick={undo}
+                    title="Undo page edit (⌘/Ctrl+Z)"
+                    aria-label="Undo page edit"
+                  >
+                    ↶ Undo
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!history.future.length}
+                    onClick={redo}
+                    title="Redo page edit (⌘/Ctrl+Shift+Z)"
+                    aria-label="Redo page edit"
+                  >
+                    ↷ Redo
+                  </button>
+                </div>
                 {tab === 'preview' && (
                   <p id={hintId} className="hint edit-hint">
                     Click a paragraph, equation, or figure to edit it (or Tab to it and press Enter).
@@ -706,13 +929,20 @@ export const PageView = memo(function PageView(props: Props) {
                 <>
                   <div className="editor">
                     <label htmlFor={`src-${page.id}`}>Transcription (Markdown with $LaTeX$; figures are [[FIGURE n]])</label>
-                    <MarkupToolbar target={srcRef} onChange={(v) => onUpdate(page.id, { source: v })} label={`Markup for page ${pageNo}`} />
+                    <MarkupToolbar target={srcRef} onChange={(v) => applyPageEdit({ source: v }, 350)} label={`Markup for page ${pageNo}`} />
                     <textarea
                       ref={srcRef}
                       id={`src-${page.id}`}
                       value={page.source}
                       spellCheck={false}
-                      onChange={(e) => onUpdate(page.id, { source: e.target.value })}
+                      onChange={(e) => applyPageEdit({ source: e.target.value }, 350)}
+                      onKeyDown={(e) => {
+                        const mk = shortcutMark(e);
+                        if (mk && srcRef.current) {
+                          e.preventDefault();
+                          applyMarkToTextarea(srcRef.current, mk, (v) => applyPageEdit({ source: v }, 350));
+                        }
+                      }}
                     />
                   </div>
                   <Preview html={plainHtml} label={`Preview of page ${pageNo}`} />
@@ -721,14 +951,20 @@ export const PageView = memo(function PageView(props: Props) {
                 <>
                   {activeFig && figBlock < 0 && panel}
                   {splitAt !== null && splitAt > 0 && (
-                    <Preview html={before} label={`Page ${pageNo}, before the part being edited`} onBlock={openBlock} />
+                    <Preview
+                      html={before}
+                      label={`Page ${pageNo}, before the part being edited`}
+                      onBlock={openBlock}
+                      onHoverBlock={(i) => setHoverBlock(i)}
+                    />
                   )}
                   {openInPlace}
                   {(splitAt === null || splitAt < pb.html.length - 1 || pb.tail) && (
                     <Preview
                       html={after}
                       label={splitAt === null ? `Page ${pageNo}` : `Page ${pageNo}, after the part being edited`}
-                      onBlock={openBlock}
+                      onBlock={(i) => openBlock(splitAt !== null ? splitAt + 1 + i : i)}
+                      onHoverBlock={(i) => setHoverBlock(i === null ? null : splitAt !== null ? splitAt + 1 + i : i)}
                     />
                   )}
                 </>

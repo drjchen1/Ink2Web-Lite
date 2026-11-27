@@ -2,29 +2,91 @@ import type { AnnotationStyle, Box } from '../types.ts';
 
 /** Pure helpers for cleaning model output and editing the page source. No DOM access. */
 
+/** Strips residual reasoning traces emitted by Qwen3.5 (`<think>`), Ministral 3 (`[THINK]`), or Gemma 4 (`<|channel>thought` / `<|thought|>`). */
+export function stripThinkingTraces(raw: string): string {
+  return raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*$/gi, '')
+    .replace(/\[THINK\][\s\S]*?\[\/THINK\]/gi, '')
+    .replace(/\[THINK\][\s\S]*$/gi, '')
+    .replace(/<\|channel>thought[\s\S]*?<channel\|>/gi, '')
+    .replace(/<\|thought\|>[\s\S]*?(?:<\|\/thought\|>|$)/gi, '');
+}
+
+const HAS_LIGHTON_GROUNDING_RE =
+  /^\s*!\[[a-z_]+\+?\]\(\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?\s*\)/im;
+
+/**
+ * Unescapes paired inline `\$...\$` when LightOnOCR-3 or another model escapes
+ * math delimiters (e.g. `\$f(x)\$` -> `$f(x)$`), while keeping currency like `\$5 and \$10` intact.
+ */
+export function unescapeInlineMathDollars(md: string): string {
+  return md.replace(/\\\$(?!\s)([^$\n]{1,80}?)(?<!\s)\\\$/g, (whole, inner: string) => {
+    if (/^\d/.test(inner)) return whole;
+    if (/^[A-Za-z]'*$/.test(inner) || /[\\^_{}=<>]|[A-Za-z]\s*\([^()\n]+\)/.test(inner)) {
+      return `$${inner}$`;
+    }
+    return whole;
+  });
+}
+
+/** Promotes standalone single-$ multi-line LaTeX environments (`$\begin{aligned}...\end{aligned}$`) to display `$$...$$`. */
+export function fixSingleDollarDisplayEnvs(md: string): string {
+  return md.replace(
+    /^[ \t]*\$(?!\$)\s*(\\begin\{(aligned|align\*?|gathered|gather\*?|cases|pmatrix|bmatrix|vmatrix|matrix)\}[\s\S]+?\\end\{\2\})\s*\$[ \t]*$/gm,
+    (_, inner: string) => `$$\n${inner.trim()}\n$$`,
+  );
+}
+
+/** Converts simple HTML `<table>...</table>` fragments (emitted by LightOnOCR-3 or Gemma 4) into Markdown pipe tables. */
+export function htmlTablesToMarkdown(md: string): string {
+  const cellText = (s: string) => s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return md.replace(/<table\b[^>]*>([\s\S]*?)<\/table>/gi, (whole, body: string) => {
+    const rows = [...body.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((rm) =>
+      [...rm[1].matchAll(/<(t[hd])\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((cm) => cellText(cm[2])),
+    );
+    const valid = rows.filter((r) => r.length > 0);
+    if (!valid.length) return whole;
+    const cols = Math.max(...valid.map((r) => r.length));
+    const pad = (r: string[]) => `| ${Array.from({ length: cols }, (_, i) => r[i] ?? '').join(' | ')} |`;
+    const head = pad(valid[0]);
+    const sep = `| ${Array.from({ length: cols }, () => '---').join(' | ')} |`;
+    const rest = valid.slice(1).map(pad);
+    return `\n${[head, sep, ...rest].join('\n')}\n`;
+  });
+}
+
 /**
  * Removes wrappers small models like to add (code fences, think blocks, chatter) and
  * repairs common slips. With the "notes" annotation style, arrows and braces the model
  * still drew inside an equation are moved out into [[note: term | words]] lines.
  */
 export function cleanModelOutput(raw: string, style: AnnotationStyle = 'notes'): string {
-  let t = raw.replace(/\r\n?/g, '\n');
-  t = t.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  let t = stripThinkingTraces(raw.replace(/\r\n?/g, '\n'));
   // Drop a leading "Here is the transcription:"-style line.
   t = t.replace(/^\s*(here is|here's|below is|sure)[^\n]*:\s*\n/i, '');
   // Unwrap a code fence around the whole answer (closing fence may be missing if cut off).
   const fence = t.match(/^\s*```[a-zA-Z]*[ \t]*\n([\s\S]*?)(?:\n```\s*)?$/);
   if (fence) t = fence[1];
+  if (HAS_LIGHTON_GROUNDING_RE.test(t)) t = cleanLightOnOcrOutput(t).text;
   // Normalize LaTeX delimiters to $ / $$ so there is one canonical form for editing.
   // Trim the contents: some models write "\( x \)", and "$ x $" would not count as math
   // (an opening $ followed by a space is text, so "$5 and $10" stays text).
   t = t.replace(/(?<!\\)\\\[([\s\S]*?)(?<!\\)\\\]/g, (_, m: string) => `$$${m.trim()}$$`);
   t = t.replace(/(?<!\\)\\\(([\s\S]*?)(?<!\\)\\\)/g, (_, m: string) => `$${m.trim()}$`);
+  t = unescapeInlineMathDollars(t);
+  t = fixSingleDollarDisplayEnvs(t);
+  t = htmlTablesToMarkdown(t);
   t = normalizeColorMarkup(t);
   t = unwrapTextMath(t);
   t = mergeArrowNotes(t);
+  t = fixLaplaceBraces(t);
+  t = fixDisplayAlignment(t);
   t = promoteEquationLines(t);
-  if (style === 'notes') t = annotationsToNotes(t);
+  if (style === 'notes') {
+    t = rescueScratchNotes(t);
+    t = annotationsToNotes(t);
+  }
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -77,14 +139,28 @@ export interface Annotation {
 }
 
 /**
+ * Short convergence or domain condition braces (e.g. \underbrace{...}_{\to 0 if s > 0}
+ * or \underbrace{0}_{(s > 0)}) belong inline inside the equation rather than extracted
+ * into "where" notes.
+ */
+function isInlineConditionBrace(cmd: string, clean: string): boolean {
+  if (cmd !== 'underbrace' && cmd !== 'overbrace') return false;
+  if (/^(?:\\(?:to|rightarrow|longrightarrow)\b|→)/.test(clean)) return true;
+  if (/^\([^()]{1,32}\)$/.test(clean)) return /[<>≤≥≠=]|\\(?:le|leq|ge|geq|ne|neq)\b/.test(clean);
+  return false;
+}
+
+/**
  * Removes \underset, \overset, \underbrace and \overbrace from a LaTeX expression,
  * keeping the annotated term, and returns the notes that were attached.
  */
 export function extractAnnotations(tex: string): { tex: string; notes: Annotation[] } {
   const notes: Annotation[] = [];
   let s = tex;
-  const cmd = /\\(underset|overset|stackrel|underbrace|overbrace)\s*\{/;
+  const cmd = /\\(underset|overset|stackrel|underbrace|overbrace)\s*\{/g;
+  let searchFrom = 0;
   for (let guard = 0; guard < 50; guard++) {
+    cmd.lastIndex = searchFrom;
     const m = cmd.exec(s);
     if (!m) break;
     const open1 = m.index + m[0].length - 1;
@@ -117,8 +193,13 @@ export function extractAnnotations(tex: string): { tex: string; notes: Annotatio
       end = end2;
     }
     const clean = cleanLabel(label);
+    if (clean && isInlineConditionBrace(m[1], clean)) {
+      searchFrom = m.index + m[0].length;
+      continue;
+    }
     if (clean) notes.push({ target: target.trim(), label: clean });
     s = s.slice(0, m.index) + target + s.slice(end);
+    searchFrom = m.index;
   }
   return { tex: s, notes };
 }
@@ -184,9 +265,25 @@ export function mergeArrowNotes(md: string): string {
   const out: string[] = [];
   const short = (l: string) => {
     const t = l.trim();
-    return t.length > 0 && t.length <= 24 && !t.includes('=') && !t.includes('$$') && t.split(/\s+/).length <= 2 && !/^#|^\[\[/.test(t);
+    return (
+      t.length > 0 &&
+      t.length <= 24 &&
+      !t.includes('=') &&
+      !t.includes('$$') &&
+      t.split(/\s+/).length <= 2 &&
+      !/[,:;]$/.test(t) &&
+      !/^#|^\[\[/.test(t)
+    );
   };
   for (let i = 0; i < lines.length; i++) {
+    const sentenceArrow = lines[i].match(/^\s*([→⟶])\s+(.+)$/);
+    if (sentenceArrow) {
+      const rest = sentenceArrow[2].trim();
+      if (rest.split(/\s+/).length >= 3 || rest.includes('$')) {
+        out.push(lines[i].replace(/^\s*[→⟶]\s+/, '$\\to$ '));
+        continue;
+      }
+    }
     const m = lines[i].match(ARROW_LINE);
     if (!m) {
       out.push(lines[i]);
@@ -208,6 +305,182 @@ export function mergeArrowNotes(md: string): string {
     }
     segments.push(seg);
     out.push(`[[note: ${segments.join(' · ')}]]`);
+  }
+  return out.join('\n');
+}
+
+/**
+ * Escapes unescaped outer braces on Laplace transforms (\mathcal{L}{...} -> \mathcal{L}\{...\})
+ * and normalizes \mathscr{L} -> \mathcal{L}.
+ */
+export function fixLaplaceBraces(md: string): string {
+  const fixTex = (tex: string): string => {
+    let s = tex.replace(/\\mathscr\s*\{\s*L\s*\}/g, '\\mathcal{L}');
+    const re = /\\mathcal\s*\{\s*L\s*\}(?:\s*\^\s*(?:\{-1\}|-1))?\s*\{/g;
+    let from = 0;
+    for (let guard = 0; guard < 50; guard++) {
+      re.lastIndex = from;
+      const m = re.exec(s);
+      if (!m) break;
+      const open = m.index + m[0].length - 1;
+      const end = groupEnd(s, open);
+      if (end < 0) break;
+      s = `${s.slice(0, open)}\\{${s.slice(open + 1, end - 1)}\\}${s.slice(end)}`;
+      from = open + 2;
+    }
+    return s;
+  };
+  let t = md.replace(/\\mathscr\s*\{\s*L\s*\}/g, '\\mathcal{L}');
+  t = t.replace(/\$\$([\s\S]+?)\$\$/g, (_, inner: string) => `$$${fixTex(inner)}$$`);
+  t = t.replace(/(?<!\$)\$(?!\$)([^$\n]+?)(?<!\$)\$(?!\$)/g, (_, inner: string) => `$${fixTex(inner)}$`);
+  return t;
+}
+
+/** Inserts & before the first top-level "=" in an equation line. */
+function alignFirstEq(tex: string): string {
+  const t = tex.trim();
+  if (t.startsWith('=')) return `&${t}`;
+  let depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (c === '\\') {
+      if (t.startsWith('\\begin{', i)) break;
+      i++;
+      continue;
+    }
+    if (c === '{') depth++;
+    else if (c === '}') depth = Math.max(0, depth - 1);
+    else if (depth === 0 && c === '=') {
+      const prev = t[i - 1] ?? '';
+      const next = t[i + 1] ?? '';
+      if (!/[<>!:=]/.test(prev) && next !== '=') return `${t.slice(0, i)}&=${t.slice(i + 1)}`;
+    }
+  }
+  return t;
+}
+
+/**
+ * Wraps stray & alignments in \begin{aligned}...\end{aligned}, and merges consecutive
+ * display equations starting with "=" into one aligned block.
+ */
+export function fixDisplayAlignment(md: string): string {
+  // 1. Wrap bare & inside a $$...$$ block that lacks a \begin{...} environment.
+  let t = md.replace(/\$\$([\s\S]+?)\$\$/g, (whole, inner: string) => {
+    if (!/\\begin\s*\{/.test(inner) && /(?<!\\)&/.test(inner)) {
+      return `$$\n\\begin{aligned}\n${inner.trim()}\n\\end{aligned}\n$$`;
+    }
+    return whole;
+  });
+
+  // 2. Merge consecutive $$...$$ blocks where continuation blocks start with "=".
+  const tokens: { kind: 'math' | 'gap'; text: string }[] = [];
+  const blockRe = /\$\$([\s\S]+?)\$\$/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = blockRe.exec(t))) {
+    if (m.index > last) tokens.push({ kind: 'gap', text: t.slice(last, m.index) });
+    tokens.push({ kind: 'math', text: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < t.length) tokens.push({ kind: 'gap', text: t.slice(last) });
+
+  const canMerge = (inner: string) =>
+    !/\\begin\s*\{aligned\}|\\begin\s*\{align|\\vdots|\\boxed\b/.test(inner) && !/\n/.test(inner.trim());
+
+  const out: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const cur = tokens[i];
+    if (cur.kind !== 'math' || !canMerge(cur.text)) {
+      out.push(cur.kind === 'math' ? `$$${cur.text}$$` : cur.text);
+      continue;
+    }
+    const group = [cur.text];
+    let j = i;
+    while (j + 2 < tokens.length && tokens[j + 1].kind === 'gap' && /^\s*$/.test(tokens[j + 1].text) && tokens[j + 2].kind === 'math') {
+      const nextInner = tokens[j + 2].text;
+      if (!canMerge(nextInner) || !/^\s*=(?!=)/.test(nextInner)) break;
+      group.push(nextInner);
+      j += 2;
+    }
+    if (group.length === 1) {
+      out.push(`$$${cur.text}$$`);
+    } else {
+      const rows = [alignFirstEq(group[0]), ...group.slice(1).map((g) => `&${g.trim()}`)];
+      out.push(`$$\n\\begin{aligned}\n${rows.join(' \\\\\n')}\n\\end{aligned}\n$$`);
+      i = j;
+    }
+  }
+  return out.join('');
+}
+
+const IBP_PART = /^(u|dv|du|v)\s*=\s*(.+)$/i;
+
+/** Parses a complete 4-part integration-by-parts table/list (u, dv, du, v) or returns null. */
+function parseIbpParts(raw: string): { u: string; dv: string; du: string; v: string } | null {
+  const cleaned = raw
+    .replace(/\\begin\{(?:array|aligned|align\*?|gathered|cases)\}(?:\{[^}]*\})?/gi, '\n')
+    .replace(/\\end\{(?:array|aligned|align\*?|gathered|cases)\}/gi, '\n')
+    .replace(/\\(?:text|textrm|mbox)\s*\{([^{}]*)\}/g, '$1')
+    .replace(/\$/g, '')
+    .trim();
+  const chunks = cleaned
+    .split(/(?:\\\\|\\qquad|\\quad|[&\n]|(?<![\\])[,;])+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (chunks.length < 4 || chunks.length > 6) return null;
+  const map: Partial<Record<'u' | 'dv' | 'du' | 'v', string>> = {};
+  for (const c of chunks) {
+    const m = c.match(IBP_PART);
+    if (!m) return null;
+    const key = m[1].toLowerCase() as 'u' | 'dv' | 'du' | 'v';
+    if (key in map) return null;
+    map[key] = `${key} = ${m[2].trim()}`;
+  }
+  if (!map.u || !map.dv || !map.du || !map.v) return null;
+  return { u: map.u, dv: map.dv, du: map.du, v: map.v };
+}
+
+/**
+ * Rescues margin integration-by-parts scratch tables (u, dv, du, v) whether jammed
+ * at the end of a display integral via \quad/\qquad or left as separate scratch lines.
+ */
+export function rescueScratchNotes(md: string): string {
+  // 1. Trailing scratch table inside a $$...$$ block that also holds an integral.
+  let t = md.replace(/\$\$([\s\S]+?)\$\$/g, (whole, inner: string) => {
+    if (!/\\int(?![A-Za-z])/.test(inner)) return whole;
+    const sep = inner.match(/([\s\S]*?)(?:\\qquad|\\quad|\\hspace\s*\{[^}]+\})\s*([\s\S]+)$/);
+    if (!sep) return whole;
+    const parsed = parseIbpParts(sep[2]);
+    if (!parsed) return whole;
+    const main = sep[1].replace(/[\\,\s]+$/, '').trim();
+    if (!main) return whole;
+    return `$$${main}$$\n[[scratch: integration by parts | ${parsed.u}, ${parsed.dv} ; ${parsed.du}, ${parsed.v}]]`;
+  });
+
+  // 2. Standalone 1-4 line scratch blocks holding the full {u, dv, du, v} set.
+  const lines = t.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*\[\[\s*scratch\s*:/i.test(lines[i])) {
+      out.push(lines[i]);
+      continue;
+    }
+    let matched: { end: number; ibp: { u: string; dv: string; du: string; v: string } } | null = null;
+    for (let len = 1; len <= 6 && i + len <= lines.length; len++) {
+      const slice = lines.slice(i, i + len).join('\n');
+      if (/\[\[|\\int(?![A-Za-z])/.test(slice)) break;
+      const ibp = parseIbpParts(slice.replace(/\$\$/g, ''));
+      if (ibp) {
+        matched = { end: i + len - 1, ibp };
+        break;
+      }
+    }
+    if (matched) {
+      out.push(`[[scratch: integration by parts | ${matched.ibp.u}, ${matched.ibp.dv} ; ${matched.ibp.du}, ${matched.ibp.v}]]`);
+      i = matched.end;
+    } else {
+      out.push(lines[i]);
+    }
   }
   return out.join('\n');
 }
@@ -496,6 +769,12 @@ export function sourceUnits(source: string): { start: number; end: number }[] {
       while (end + 1 < lines.length && (lines[++end].match(/\$\$/g) ?? []).length % 2 === 0);
     } else if (env && !line.includes(`\\end{${env[1]}}`)) {
       while (end + 1 < lines.length && !lines[++end].includes(`\\end{${env[1]}}`));
+    } else if (/^\s*\[\[\s*box(?:\s*:[^\]]*)?\s*\]\]\s*$/i.test(line)) {
+      const closeAt = lines.findIndex((l, k) => k > i && /^\s*\[\[\s*\/box\s*\]\]\s*$/i.test(l));
+      if (closeAt > i) end = closeAt;
+    } else if (/^\s*\[\[\s*columns\s*\]\]\s*$/i.test(line)) {
+      const closeAt = lines.findIndex((l, k) => k > i && /^\s*\[\[\s*\/columns\s*\]\]\s*$/i.test(l));
+      if (closeAt > i) end = closeAt;
     }
     units.push({ start: i, end });
     i = end;
@@ -558,9 +837,10 @@ export function markerUnitIndex(source: string): Map<number, number> {
  * page-normalized coordinates (page occupies [0, 1000*w/side] x [0, 1000*h/side]).
  */
 export function parseBoxes(answer: string, count: number, pageW: number, pageH: number): (Box | null)[] {
+  const cleanAnswer = stripThinkingTraces(answer).trim();
   let arrays: number[][] = [];
   try {
-    const json = JSON.parse(answer) as { figures?: { id?: number; bbox_2d?: number[] }[] };
+    const json = JSON.parse(cleanAnswer) as { figures?: { id?: number; bbox_2d?: number[] }[] };
     const figs = json.figures ?? [];
     const out: (number[] | undefined)[] = [];
     figs.forEach((f, i) => {
@@ -569,7 +849,7 @@ export function parseBoxes(answer: string, count: number, pageW: number, pageH: 
     });
     arrays = Array.from({ length: count }, (_, i) => out[i] ?? []);
   } catch {
-    const found = answer.match(/\[\s*-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?){3}\s*\]/g) ?? [];
+    const found = cleanAnswer.match(/\[\s*-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?){3}\s*\]/g) ?? [];
     arrays = found.map((s) => JSON.parse(s) as number[]);
   }
 
@@ -599,4 +879,204 @@ export function clampBox(b: Box): Box {
 /** Next unused figure id for a page. */
 export function nextFigureId(ids: number[]): number {
   return ids.length ? Math.max(...ids) + 1 : 1;
+}
+
+const LIGHTON_TAG_PREFIX_RE =
+  /^\s*!\[([a-z_]+)\+?\]\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)[ \t]*(.*)$/i;
+const GENERIC_MD_IMAGE_RE = /^!\[([^\]]*)\]\([^)]+\)\s*$/;
+const PIPE_ROW_RE = /^\s*\|.*\|\s*$/;
+const LIGHTON_FIGURE_KINDS = new Set(['image', 'figure', 'picture', 'chart', 'plot']);
+
+function consumeFollowingTable(
+  lines: string[],
+  idx: number,
+  inlineRest: string,
+): { endIdx: number; pipeRows: string[]; hadTable: boolean } {
+  const restTrim = inlineRest.trim();
+  if (/^<table\b/i.test(restTrim)) {
+    let k = idx;
+    if (!/<\/table>/i.test(restTrim)) {
+      while (k + 1 < lines.length && !LIGHTON_TAG_PREFIX_RE.test(lines[k + 1].trim())) {
+        k++;
+        if (/<\/table>/i.test(lines[k])) break;
+      }
+    }
+    return { endIdx: k, pipeRows: [], hadTable: true };
+  }
+
+  const pipeRows: string[] = [];
+  let lastPipeIdx = idx;
+  if (PIPE_ROW_RE.test(restTrim)) {
+    pipeRows.push(restTrim);
+  } else if (restTrim) {
+    return { endIdx: idx, pipeRows: [], hadTable: false };
+  }
+
+  let k = idx + 1;
+  while (k < lines.length && !lines[k].trim()) k++;
+  if (
+    k < lines.length &&
+    !LIGHTON_TAG_PREFIX_RE.test(lines[k].trim()) &&
+    /^<table\b/i.test(lines[k].trim()) &&
+    pipeRows.length === 0
+  ) {
+    if (!/<\/table>/i.test(lines[k])) {
+      while (k + 1 < lines.length && !LIGHTON_TAG_PREFIX_RE.test(lines[k + 1].trim())) {
+        k++;
+        if (/<\/table>/i.test(lines[k])) break;
+      }
+    }
+    return { endIdx: k, pipeRows: [], hadTable: true };
+  }
+
+  while (k < lines.length) {
+    const t = lines[k].trim();
+    if (LIGHTON_TAG_PREFIX_RE.test(t)) break;
+    if (!t) {
+      if (k + 1 < lines.length && !LIGHTON_TAG_PREFIX_RE.test(lines[k + 1].trim()) && PIPE_ROW_RE.test(lines[k + 1].trim())) {
+        k++;
+        continue;
+      }
+      break;
+    }
+    if (PIPE_ROW_RE.test(t)) {
+      pipeRows.push(t);
+      lastPipeIdx = k;
+      k++;
+      continue;
+    }
+    break;
+  }
+
+  if (pipeRows.length >= 2) return { endIdx: lastPipeIdx, pipeRows, hadTable: true };
+  return { endIdx: idx, pipeRows: [], hadTable: false };
+}
+
+/**
+ * Translates LightOnOCR-3 native `"grounding"` output (`![label](x1,y1,x2,y2)` tags,
+ * either standalone or inline before content) and image placeholders into Ink2Web Markdown + normalized Boxes.
+ */
+export function cleanLightOnOcrOutput(raw: string): { text: string; boxes: Box[] } {
+  const lines = stripThinkingTraces(raw.replace(/\r\n?/g, '\n')).split('\n');
+  const hasTextTags = lines.some((l) => {
+    const m = l.trim().match(LIGHTON_TAG_PREFIX_RE);
+    return !!m && !LIGHTON_FIGURE_KINDS.has(m[1].toLowerCase());
+  });
+  const boxes: Box[] = [];
+  const out: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(LIGHTON_TAG_PREFIX_RE);
+    if (!m) {
+      const img = line.trim().match(GENERIC_MD_IMAGE_RE);
+      if (img) {
+        const tbl = consumeFollowingTable(lines, i, '');
+        if (tbl.hadTable && (tbl.pipeRows.length === 0 || tbl.pipeRows.some((r) => /\|\s*\?\s*(?=\|)/.test(r)))) {
+          i = tbl.endIdx;
+        }
+        const alt = img[1].replace(/^(?:image|chart|figure|picture|plot)\s*$/i, '').trim();
+        out.push(`[[FIGURE: ${alt || 'Hand-drawn figure'}]]`);
+      } else {
+        out.push(line);
+      }
+      continue;
+    }
+
+    const kind = m[1].toLowerCase();
+    let x1 = Number(m[2]);
+    let y1 = Number(m[3]);
+    let x2 = Number(m[4]);
+    let y2 = Number(m[5]);
+    if (x2 < x1) [x1, x2] = [x2, x1];
+    if (y2 < y1) [y1, y2] = [y2, y1];
+    const inlineRest = m[6].trim();
+
+    if (kind === 'page_number' || kind === 'page_header' || kind === 'page_footer') {
+      if (!inlineRest) {
+        let k = i + 1;
+        while (k < lines.length && !lines[k].trim()) k++;
+        const nextTrim = k < lines.length ? lines[k].trim() : '';
+        if (nextTrim && !LIGHTON_TAG_PREFIX_RE.test(nextTrim) && !/^#/.test(nextTrim) && nextTrim.length <= 40) {
+          i = k;
+        }
+      }
+      continue;
+    }
+
+    if (kind === 'title' || kind === 'section_header') {
+      if (inlineRest) {
+        out.push(/^#/.test(inlineRest) ? inlineRest : `## ${inlineRest}`);
+      } else {
+        let k = i + 1;
+        while (k < lines.length && !lines[k].trim()) k++;
+        const nextTrim = k < lines.length ? lines[k].trim() : '';
+        if (nextTrim && !LIGHTON_TAG_PREFIX_RE.test(nextTrim) && !/^#/.test(nextTrim)) {
+          out.push(`## ${nextTrim}`);
+          i = k;
+        }
+      }
+      continue;
+    }
+
+    if (kind === 'formula' || kind === 'equation') {
+      if (inlineRest) out.push('', inlineRest, '');
+      continue;
+    }
+
+    if (kind === 'aside_text') {
+      if (inlineRest) {
+        out.push(inlineRest.length <= 80 && !inlineRest.includes('$$') ? `[[note: ${inlineRest}]]` : inlineRest);
+      } else if (hasTextTags) {
+        const blockLines: string[] = [];
+        while (i + 1 < lines.length && !LIGHTON_TAG_PREFIX_RE.test(lines[i + 1].trim())) {
+          blockLines.push(lines[++i]);
+        }
+        const blockText = blockLines.join('\n').trim();
+        if (blockText && !blockText.includes('\n') && blockText.length <= 80 && !blockText.includes('$$')) {
+          out.push(`[[note: ${blockText}]]`);
+        } else if (blockText) {
+          out.push(blockText);
+        }
+      }
+      continue;
+    }
+
+    if (kind === 'table') {
+      const tbl = consumeFollowingTable(lines, i, inlineRest);
+      if (tbl.pipeRows.length >= 2) {
+        i = tbl.endIdx;
+        out.push('', ...tbl.pipeRows, '');
+      } else if (inlineRest) {
+        out.push(inlineRest);
+      }
+      continue;
+    }
+
+    if (LIGHTON_FIGURE_KINDS.has(kind)) {
+      const box = clampBox({ x: x1 / 1000, y: y1 / 1000, w: (x2 - x1) / 1000, h: (y2 - y1) / 1000 });
+      if (box.w > 0.02 && box.h > 0.02) boxes.push(box);
+      const fallbackDesc = kind === 'chart' || kind === 'plot' ? 'Chart or graph' : 'Hand-drawn figure';
+      const tbl = consumeFollowingTable(lines, i, inlineRest);
+      let desc = fallbackDesc;
+      if (tbl.hadTable) {
+        i = tbl.endIdx;
+      } else if (inlineRest) {
+        desc = inlineRest.replace(/\s+/g, ' ').replace(/\$+/g, '').trim() || fallbackDesc;
+      } else if (hasTextTags) {
+        const blockLines: string[] = [];
+        while (i + 1 < lines.length && !LIGHTON_TAG_PREFIX_RE.test(lines[i + 1].trim())) {
+          blockLines.push(lines[++i]);
+        }
+        const blockText = blockLines.join('\n').trim();
+        if (blockText) desc = blockText.replace(/\s+/g, ' ').replace(/\$+/g, '').trim() || fallbackDesc;
+      }
+      out.push('', `[[FIGURE: ${desc}]]`, '');
+      continue;
+    }
+
+    if (inlineRest) out.push(inlineRest);
+  }
+
+  return { text: tidy(out.join('\n')), boxes };
 }

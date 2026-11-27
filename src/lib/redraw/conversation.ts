@@ -12,6 +12,8 @@ export interface RedrawOutcome {
   /** The spec as pretty JSON ('' for none/unreadable). */
   spec: string;
   errors: string[];
+  /** Optional confidence tag from v2 ink verification. */
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 /**

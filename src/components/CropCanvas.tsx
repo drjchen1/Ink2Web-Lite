@@ -1,5 +1,6 @@
-import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { Box, Figure } from '../types.ts';
+import { LOUPE_H, LOUPE_W, computeLoupeMetrics } from '../lib/editing.ts';
 import { clampBox } from '../lib/transcript.ts';
 
 interface Props {
@@ -13,6 +14,10 @@ interface Props {
   selecting?: boolean;
   selection?: Box | null;
   onSelection?: (box: Box) => void;
+  /** Soft horizontal spotlight band syncing a hovered/edited text block to the scan. */
+  spotlight?: { y0: number; y1: number } | null;
+  /** 2.2x magnifier loupe toggle for inspecting tiny handwritten subscripts. */
+  loupe?: boolean;
 }
 
 type Drag =
@@ -28,13 +33,31 @@ const MIN = 0.02;
  * pointer (drag inside / drag a corner / draw a new box on empty space) or with
  * the keyboard (arrows move, Shift+arrows resize).
  */
-export function CropCanvas({ src, alt, figures, active, onSelect, onChange, selecting = false, selection = null, onSelection }: Props) {
+export function CropCanvas({
+  src,
+  alt,
+  figures,
+  active,
+  onSelect,
+  onChange,
+  selecting = false,
+  selection = null,
+  onSelection,
+  spotlight = null,
+  loupe = false,
+}: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
+  const [lens, setLens] = useState<{ px: number; py: number; cw: number; ch: number } | null>(null);
 
   const point = (e: PointerEvent) => {
     const r = wrap.current!.getBoundingClientRect();
-    return { px: (e.clientX - r.left) / r.width, py: (e.clientY - r.top) / r.height };
+    return {
+      px: (e.clientX - r.left) / r.width,
+      py: (e.clientY - r.top) / r.height,
+      cw: r.width,
+      ch: r.height,
+    };
   };
   const activeFig = figures.find((f) => f.id === active);
 
@@ -63,8 +86,13 @@ export function CropCanvas({ src, alt, figures, active, onSelect, onChange, sele
 
   const onMove = (e: PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
-    if (!d) return;
-    const { px, py } = point(e);
+    const { px, py, cw, ch } = point(e);
+    if (!d) {
+      if ((loupe || e.altKey) && px >= 0 && px <= 1 && py >= 0 && py <= 1) setLens({ px, py, cw, ch });
+      else if (lens) setLens(null);
+      return;
+    }
+    if (lens) setLens(null);
     if (d.mode === 'select') {
       const b = { x: Math.min(px, d.px), y: Math.min(py, d.py), w: Math.abs(px - d.px), h: Math.abs(py - d.py) };
       if (b.w >= MIN && b.h >= MIN) onSelection?.(clampBox(b));
@@ -120,16 +148,42 @@ export function CropCanvas({ src, alt, figures, active, onSelect, onChange, sele
     );
   };
 
+  const loupeStyle = (() => {
+    if (!lens) return null;
+    const m = computeLoupeMetrics(lens.px, lens.py, lens.cw, lens.ch);
+    return {
+      width: `${LOUPE_W}px`,
+      height: `${LOUPE_H}px`,
+      left: `${m.left}px`,
+      top: `${m.top}px`,
+      backgroundImage: `url("${src}")`,
+      backgroundSize: `${m.bgW}px ${m.bgH}px`,
+      backgroundPosition: `${m.bgX}px ${m.bgY}px`,
+    };
+  })();
+
   return (
     <div
       ref={wrap}
-      className={`crop${selecting ? ' selecting' : ''}`}
+      className={`crop${selecting ? ' selecting' : ''}${loupe || lens ? ' loupe-active' : ''}`}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={onUp}
+      onPointerLeave={() => setLens(null)}
     >
       <img src={src} alt={alt} draggable={false} />
+      {spotlight && !selecting && active === null && (
+        <div
+          className="scan-spotlight"
+          aria-hidden="true"
+          style={{
+            top: `${spotlight.y0 * 100}%`,
+            height: `${Math.max(4, (spotlight.y1 - spotlight.y0) * 100)}%`,
+          }}
+        />
+      )}
+      {loupeStyle && <div className="scan-loupe" aria-hidden="true" style={loupeStyle} />}
       {selecting && selection && (
         <div
           className="reread-box"

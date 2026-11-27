@@ -170,10 +170,53 @@ export function analyzeLayout(map: InkMap): Layout {
   //    Big drawings: at least ~5 handwriting heights tall (taller than any equation line).
   //    Narrow drawings (a spring, a vertical arrow diagram): at least ~3 heights tall,
   //    taller than wide, and not sitting inside a row of writing.
+  //    Hollow hand-drawn rectangles around equations (high border coverage, empty core) are skipped.
+  const isBoxFrame = (c: Comp, idx: number): boolean => {
+    if (cw(c) < ch(c) * 1.6 || cw(c) < unit * 6) return false;
+    const bx = Math.max(2, Math.round(cw(c) * 0.08));
+    const by = Math.max(2, Math.round(ch(c) * 0.15));
+    const ix0 = c.x0 + 2 * bx;
+    const ix1 = c.x1 - 2 * bx;
+    const iy0 = c.y0 + 2 * by;
+    const iy1 = c.y1 - 2 * by;
+    if (ix1 <= ix0 || iy1 <= iy0) return false;
+    let topCols = 0;
+    let botCols = 0;
+    for (let x = c.x0; x <= c.x1; x++) {
+      let hasTop = false;
+      for (let y = c.y0; y <= Math.min(c.y1, c.y0 + by); y++) if (label[y * gw + x] === idx) { hasTop = true; break; }
+      if (hasTop) topCols++;
+      let hasBot = false;
+      for (let y = Math.max(c.y0, c.y1 - by); y <= c.y1; y++) if (label[y * gw + x] === idx) { hasBot = true; break; }
+      if (hasBot) botCols++;
+    }
+    let leftRows = 0;
+    let rightRows = 0;
+    for (let y = c.y0; y <= c.y1; y++) {
+      let hasL = false;
+      for (let x = c.x0; x <= Math.min(c.x1, c.x0 + bx); x++) if (label[y * gw + x] === idx) { hasL = true; break; }
+      if (hasL) leftRows++;
+      let hasR = false;
+      for (let x = Math.max(c.x0, c.x1 - bx); x <= c.x1; x++) if (label[y * gw + x] === idx) { hasR = true; break; }
+      if (hasR) rightRows++;
+    }
+    if (topCols / cw(c) < 0.65 || botCols / cw(c) < 0.65 || leftRows / ch(c) < 0.65 || rightRows / ch(c) < 0.65) return false;
+    let coreHit = 0;
+    const coreArea = (ix1 - ix0 + 1) * (iy1 - iy0 + 1);
+    for (let y = iy0; y <= iy1; y++)
+      for (let x = ix0; x <= ix1; x++) if (label[y * gw + x] === idx) coreHit++;
+    return coreHit / coreArea < 0.1;
+  };
+
   const used = new Set<number>();
+  const boxFrames = new Set<number>();
   const figs: Comp[] = [];
   comps.forEach((c, i) => {
     if (cw(c) < unit * 1.5) return; // a lone vertical stroke (a bracket, an integral sign) is not a drawing
+    if (isBoxFrame(c, i)) {
+      boxFrames.add(i);
+      return;
+    }
     const big = ch(c) >= unit * 5;
     const narrow = ch(c) >= unit * 3 && ch(c) > cw(c) && groupWidth(i) <= cw(c) * 3;
     if (big || narrow) {
@@ -269,7 +312,7 @@ export function analyzeLayout(map: InkMap): Layout {
     }))
     .sort((a, b) => a.y - b.y || a.x - b.x);
 
-  // 7. Text lines: rows of ink outside figures, grouped into bands.
+  // 7. Text lines: rows of ink outside figures (and box frames), grouped into bands.
   const inFig = (x: number, y: number) =>
     figs.some((f) => x >= f.x0 && x <= f.x1 && y >= f.y0 && y <= f.y1);
   const rowMin = new Int32Array(gh).fill(gw);
@@ -277,7 +320,7 @@ export function analyzeLayout(map: InkMap): Layout {
   const rowCount = new Int32Array(gh);
   for (let y = 0; y < gh; y++)
     for (let x = 0; x < gw; x++)
-      if (occ[y * gw + x] && !inFig(x, y)) {
+      if (occ[y * gw + x] && !boxFrames.has(label[y * gw + x]) && !inFig(x, y)) {
         rowCount[y]++;
         if (x < rowMin[y]) rowMin[y] = x;
         if (x > rowMax[y]) rowMax[y] = x;
@@ -389,9 +432,13 @@ export interface PlacementUnit {
  * splits one. Lines written beside the figure count as below it, so they follow
  * the figure (and wrap next to it). Order relative to existing markers is kept.
  */
+const strictlyBeside = (l: TextLine, fig: Box) => l.x0 >= fig.x + fig.w * 0.9 || l.x1 <= fig.x + fig.w * 0.1;
+
 export function insertionIndex(figure: Box, lines: TextLine[], units: PlacementUnit[]): number {
   const total = lines.reduce((n, l) => n + (l.x1 - l.x0), 0);
-  const above = lines.filter((l) => l.y < figure.y).reduce((n, l) => n + (l.x1 - l.x0), 0);
+  const above = lines
+    .filter((l) => l.y < figure.y && !(strictlyBeside(l, figure) && l.y > figure.y - figure.h * 0.08))
+    .reduce((n, l) => n + (l.x1 - l.x0), 0);
   const target = total > 0 ? above / total : 1;
 
   const textTotal = units.reduce((n, u) => n + (u.markerY === null ? u.weight : 0), 0);
@@ -435,8 +482,8 @@ export interface FigureLayout {
 
 /** Text lines written beside a figure, on the side the text flows (right or left). */
 export function besideLines(fig: Box, lines: TextLine[]): { side: 'left' | 'right' | null; lines: TextLine[] } {
-  // A line whose middle is level with the figure (allowing a little below its bottom edge).
-  const level = lines.filter((l) => l.y > fig.y && l.y < fig.y + fig.h * 1.08);
+  // A line whose middle is level with the figure (allowing a little above its top and below its bottom edge).
+  const level = lines.filter((l) => l.y > fig.y - fig.h * 0.08 && l.y < fig.y + fig.h * 1.08);
   const right = level.filter((l) => l.x0 >= fig.x + fig.w * 0.9);
   const left = level.filter((l) => l.x1 <= fig.x + fig.w * 0.1);
   if (right.length && !left.length) return { side: 'right', lines: right };
@@ -458,4 +505,167 @@ export function defaultLayout(fig: Box, lines: TextLine[]): FigureLayout {
   if (b.side) return { width, align: b.side === 'right' ? 'left' : 'right', wrap: true, besideLines: b.lines.length };
   const cx = fig.x + fig.w / 2;
   return { width, align: cx < 0.4 ? 'left' : cx > 0.65 ? 'right' : 'center', wrap: false, besideLines: 0 };
+}
+
+/** Slices a normalized box out of a page InkMap (used by ink-vs-redraw checking). */
+export function cropInkMap(map: InkMap, box: Box): InkMap {
+  const x0 = Math.max(0, Math.min(map.w - 1, Math.floor(box.x * map.w)));
+  const y0 = Math.max(0, Math.min(map.h - 1, Math.floor(box.y * map.h)));
+  const x1 = Math.max(x0 + 1, Math.min(map.w, Math.ceil((box.x + box.w) * map.w)));
+  const y1 = Math.max(y0 + 1, Math.min(map.h, Math.ceil((box.y + box.h) * map.h)));
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const ink = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    ink.set(map.ink.subarray((y0 + y) * map.w + x0, (y0 + y) * map.w + x1), y * w);
+  }
+  return { w, h, ink };
+}
+
+export interface TwoColumnSplit {
+  headerBox: Box | null;
+  leftBox: Box;
+  rightBox: Box;
+  gutterX: number;
+}
+
+/**
+ * Detects a two-column handout (such as a reference sheet with side-by-side tables
+ * or callouts below an optional full-width header) from ink alone.
+ */
+export function detectTwoColumns(map: InkMap, layout: Layout): TwoColumnSplit | null {
+  const { w, h, ink } = map;
+  if (w < 40 || h < 40 || layout.lines.length < 6) return null;
+
+  const hw = Math.max(2, Math.round(w * 0.015));
+  const rowStats = (y: number, gxPx: number) => {
+    const off = y * w;
+    let left = 0;
+    let gut = 0;
+    let right = 0;
+    const g0 = Math.max(0, gxPx - hw);
+    const g1 = Math.min(w - 1, gxPx + hw);
+    for (let x = Math.round(w * 0.03); x < g0; x++) left += ink[off + x];
+    for (let x = g0; x <= g1; x++) gut += ink[off + x];
+    for (let x = g1 + 1; x <= Math.round(w * 0.97); x++) right += ink[off + x];
+    return { left, gut, right };
+  };
+
+  let best: (TwoColumnSplit & { gutHits: number }) | null = null;
+  const yEnd = Math.floor(h * 0.96);
+  for (let gx = 0.43; gx <= 0.571; gx += 0.01) {
+    if (layout.figures.some((f) => f.y + f.h > 0.3 && f.x < gx + 0.02 && f.x + f.w > gx - 0.02)) continue;
+    const gxPx = Math.round(gx * w);
+    // Skip any full-width header in the top 30% that crosses the gutter.
+    let headerLastRow = -1;
+    for (let y = 0; y < Math.floor(h * 0.3); y++) {
+      if (rowStats(y, gxPx).gut > 0) headerLastRow = y;
+    }
+    const yStart = headerLastRow >= 0 ? Math.min(Math.floor(h * 0.35), headerLastRow + Math.max(3, Math.round(h * 0.015))) : 0;
+    const bodyRows = yEnd - yStart;
+    if (bodyRows < h * 0.45) continue;
+
+    let gutRows = 0;
+    let gutHits = 0;
+    let leftInk = 0;
+    let rightInk = 0;
+    let leftRows = 0;
+    let rightRows = 0;
+    let leftTop = 0;
+    let leftBot = 0;
+    let rightTop = 0;
+    let rightBot = 0;
+    const midY = yStart + (bodyRows >> 1);
+    for (let y = yStart; y < yEnd; y++) {
+      const s = rowStats(y, gxPx);
+      if (s.gut > 0) {
+        gutRows++;
+        gutHits += s.gut;
+      }
+      leftInk += s.left;
+      rightInk += s.right;
+      if (s.left >= 2) {
+        leftRows++;
+        if (y < midY) leftTop++;
+        else leftBot++;
+      }
+      if (s.right >= 2) {
+        rightRows++;
+        if (y < midY) rightTop++;
+        else rightBot++;
+      }
+    }
+    const bodyInk = leftInk + rightInk;
+    if (bodyInk < 150) continue;
+    if (gutRows / bodyRows > 0.02) continue;
+    if (leftInk / bodyInk < 0.22 || rightInk / bodyInk < 0.22) continue;
+    if (leftRows / bodyRows < 0.12 || rightRows / bodyRows < 0.12) continue;
+    if (leftTop < 2 || leftBot < 2 || rightTop < 2 || rightBot < 2) continue;
+
+    let hasHeaderInk = false;
+    if (yStart > 0) {
+      let hInk = 0;
+      for (let y = 0; y < yStart; y++) for (let x = 0; x < w; x++) hInk += ink[y * w + x];
+      hasHeaderInk = hInk >= 30;
+    }
+    const topY = yStart / h;
+    if (!best || gutHits < best.gutHits) {
+      best = {
+        gutHits,
+        gutterX: gx,
+        headerBox: hasHeaderInk ? { x: 0, y: 0, w: 1, h: topY } : null,
+        leftBox: { x: 0, y: topY, w: gx, h: 1 - topY },
+        rightBox: { x: gx, y: topY, w: 1 - gx, h: 1 - topY },
+      };
+    }
+  }
+  if (!best) return null;
+  const { headerBox, leftBox, rightBox, gutterX } = best;
+  return { headerBox, leftBox, rightBox, gutterX };
+}
+
+/**
+ * Splits dense single-column handwritten pages (>= 10 lines) into 2-3 horizontal
+ * crop bands along figure-free whitespace gaps so small vision models read fewer
+ * symbols per request without dropping inline/margin annotations.
+ */
+export function splitDenseBands(layout: Layout): Box[] | null {
+  if (layout.lines.length < 10) return null;
+  const occupied = (y: number) =>
+    layout.figures.some((f) => y >= f.y - 0.01 && y <= f.y + f.h + 0.01) ||
+    layout.lines.some((l) => Math.abs(l.y - y) <= 0.012);
+
+  const candidates: number[] = [];
+  let gapStart = -1;
+  for (let i = 20; i <= 80; i++) {
+    const y = i / 100;
+    if (!occupied(y)) {
+      if (gapStart < 0) gapStart = y;
+    } else if (gapStart >= 0) {
+      if (y - gapStart >= 0.025) candidates.push((gapStart + y) / 2);
+      gapStart = -1;
+    }
+  }
+  if (gapStart >= 0 && 0.8 - gapStart >= 0.025) candidates.push((gapStart + 0.8) / 2);
+  if (!candidates.length) return null;
+
+  const lineCountIn = (y0: number, y1: number) => layout.lines.filter((l) => l.y >= y0 && l.y < y1).length;
+  const toBoxes = (cuts: number[]): Box[] => {
+    const ys = [0, ...cuts, 1];
+    return ys.slice(1).map((y1, k) => ({ x: 0, y: ys[k], w: 1, h: y1 - ys[k] }));
+  };
+
+  if (layout.lines.length >= 15 && candidates.length >= 2) {
+    const c1 = candidates.reduce((a, b) => (Math.abs(a - 0.34) < Math.abs(b - 0.34) ? a : b));
+    const c2 = candidates.reduce((a, b) => (Math.abs(a - 0.67) < Math.abs(b - 0.67) ? a : b));
+    if (c1 >= 0.22 && c2 - c1 >= 0.22 && 1 - c2 >= 0.22) {
+      if (lineCountIn(0, c1) >= 4 && lineCountIn(c1, c2) >= 4 && lineCountIn(c2, 1) >= 4) return toBoxes([c1, c2]);
+    }
+  }
+
+  const mid = candidates.reduce((a, b) => (Math.abs(a - 0.5) < Math.abs(b - 0.5) ? a : b));
+  if (mid >= 0.28 && 1 - mid >= 0.28 && lineCountIn(0, mid) >= 4 && lineCountIn(mid, 1) >= 4) {
+    return toBoxes([mid]);
+  }
+  return null;
 }

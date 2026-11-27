@@ -26,10 +26,11 @@ export type Node =
   | { type: 'call'; fn: string; args: Node[] };
 
 type Fn = (...a: number[]) => number;
+export type FnDef = { arity: number; f: Fn };
 const step = (x: number) => (x >= 0 ? 1 : 0);
 
 /** Supported functions and their number of arguments. */
-export const FUNCS: Record<string, { arity: number; f: Fn }> = {
+export const FUNCS: Record<string, FnDef> = {
   sin: { arity: 1, f: Math.sin },
   cos: { arity: 1, f: Math.cos },
   tan: { arity: 1, f: Math.tan },
@@ -62,6 +63,12 @@ export const FUNCS: Record<string, { arity: number; f: Fn }> = {
   max: { arity: 2, f: Math.max },
 };
 
+/** Archetype curve shapes used for generic schematic plots such as f(t) vs f(t − c). */
+export const SCHEMATIC_FUNCS: Record<string, FnDef> = {
+  f: { arity: 1, f: (x) => 0.45 * x + 0.18 * Math.sin(2.4 * x) },
+  g: { arity: 1, f: (x) => 0.8 * Math.exp(-0.35 * x) * Math.cos(2 * x) },
+};
+
 const CONSTS = { pi: Math.PI, e: Math.E } as const;
 
 export class ExprError extends Error {}
@@ -79,8 +86,8 @@ function normalize(src: string): string {
 }
 
 /** Splits a run of letters into known names, longest match first ("tcos" -> t, cos). */
-function splitName(run: string, vars: readonly string[]): string[] {
-  const known = [...vars, ...Object.keys(CONSTS), ...Object.keys(FUNCS)].sort((a, b) => b.length - a.length);
+function splitName(run: string, vars: readonly string[], funcs: Record<string, FnDef> = FUNCS): string[] {
+  const known = [...vars, ...Object.keys(CONSTS), ...Object.keys(funcs)].sort((a, b) => b.length - a.length);
   const out: string[] = [];
   let i = 0;
   while (i < run.length) {
@@ -96,7 +103,7 @@ function splitName(run: string, vars: readonly string[]): string[] {
   return out;
 }
 
-function tokenize(src: string, vars: readonly string[]): Tok[] {
+function tokenize(src: string, vars: readonly string[], funcs: Record<string, FnDef> = FUNCS): Tok[] {
   const s = normalize(src);
   const toks: Tok[] = [];
   let i = 0;
@@ -118,8 +125,8 @@ function tokenize(src: string, vars: readonly string[]): Tok[] {
     const name = /^[A-Za-z_][A-Za-z_]*(\d+)?/.exec(s.slice(i));
     if (name) {
       let run = name[0];
-      if (name[1] && !(run in FUNCS)) run = run.slice(0, -name[1].length);
-      for (const n of splitName(run, vars)) toks.push({ k: 'name', v: n });
+      if (name[1] && !(run in funcs)) run = run.slice(0, -name[1].length);
+      for (const n of splitName(run, vars, funcs)) toks.push({ k: 'name', v: n });
       i += run.length;
       continue;
     }
@@ -134,9 +141,10 @@ function tokenize(src: string, vars: readonly string[]): Tok[] {
 }
 
 /** Parses an expression in the given variables. Throws ExprError with a readable message. */
-export function parse(src: string, vars: readonly string[]): Node {
+export function parse(src: string, vars: readonly string[], extraFuncs: Record<string, FnDef> = {}): Node {
   if (!src.trim()) throw new ExprError('The expression is empty.');
-  const toks = tokenize(src, vars);
+  const funcs = Object.keys(extraFuncs).length ? { ...FUNCS, ...extraFuncs } : FUNCS;
+  const toks = tokenize(src, vars, funcs);
   let p = 0;
   const peek = () => toks[p];
   const isOp = (v: string) => peek()?.k === 'op' && peek()!.v === v;
@@ -202,7 +210,7 @@ export function parse(src: string, vars: readonly string[]): Node {
     }
     if (t.k === 'name') {
       p++;
-      if (t.v in FUNCS && !vars.includes(t.v)) {
+      if (t.v in funcs && !vars.includes(t.v)) {
         if (!isOp('(')) throw new ExprError(`Write ${t.v}(…) with parentheses.`);
         p++;
         const args = [expr()];
@@ -211,7 +219,7 @@ export function parse(src: string, vars: readonly string[]): Node {
           args.push(expr());
         }
         expect(')');
-        const want = FUNCS[t.v].arity;
+        const want = funcs[t.v].arity;
         if (args.length !== want) throw new ExprError(`${t.v}(…) takes ${want} argument${want > 1 ? 's' : ''}.`);
         return { type: 'call', fn: t.v, args };
       }
@@ -246,7 +254,7 @@ function hasVar(n: Node): boolean {
 }
 
 /** Turns a tree into a fast evaluator (nested closures; no eval). */
-export function compile(n: Node): Compiled {
+export function compile(n: Node, extraFuncs: Record<string, FnDef> = {}): Compiled {
   switch (n.type) {
     case 'num': {
       const v = n.value;
@@ -261,12 +269,12 @@ export function compile(n: Node): Compiled {
       return (env) => env[name];
     }
     case 'neg': {
-      const a = compile(n.arg);
+      const a = compile(n.arg, extraFuncs);
       return (env) => -a(env);
     }
     case 'bin': {
-      const a = compile(n.a);
-      const b = compile(n.b);
+      const a = compile(n.a, extraFuncs);
+      const b = compile(n.b, extraFuncs);
       switch (n.op) {
         case '+':
           return (env) => a(env) + b(env);
@@ -283,8 +291,8 @@ export function compile(n: Node): Compiled {
       throw new ExprError(`Unknown operator.`);
     }
     case 'call': {
-      const f = FUNCS[n.fn].f;
-      const args = n.args.map(compile);
+      const f = (extraFuncs[n.fn] ?? FUNCS[n.fn]).f;
+      const args = n.args.map((a) => compile(a, extraFuncs));
       if (args.length === 1) {
         const [x] = args;
         return (env) => f(x(env));

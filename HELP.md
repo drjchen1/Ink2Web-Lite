@@ -1,8 +1,8 @@
 # Ink2Web Lite: User Guide
 
-This guide covers everyday use of Ink2Web Lite 3.2.1. For installation, see [README.md](README.md).
+This guide covers everyday use of **Ink2Web Lite 3.5.0**. For installation, model setup, and developer documentation, see [README.md](README.md) and [docs/REDRAW.md](docs/REDRAW.md).
 
-> **Your work is saved as you go**, in this browser on this computer. To keep a copy you can move or back up, use **Save** in the top bar. See [Saving your work](#8-saving-your-work).
+> **Your work saves automatically** in this browser on this computer. To back up a copy or move work to another computer or browser, click **Save** in the top bar to download a `.ink2web.json` project file. See [Saving your work](#8-saving-your-work).
 
 ---
 
@@ -28,242 +28,150 @@ This guide covers everyday use of Ink2Web Lite 3.2.1. For installation, see [REA
 
 ### The screen
 
-- **Top bar** (always visible): the document title, when work was last saved, **Open** and **Save** for project files, the **model button** (shows the model in use; click it for settings), and **Export**.
-- **Page list** (left): every page with a thumbnail, its status, and how many things on it still need checking. Click a page to show it. **+ Add pages**, **Convert all** (or **Stop**), and **Clear all pages** are here too.
-- **Workspace** (right): one page at a time. The **original** is on the left and stays in view while you scroll; the **document** is on the right. The page's own buttons are along its top: **← Prev / Next →**, **Convert again**, **↑ / ↓** to reorder, **Remove**.
+- **Top bar** (always visible): the Ink2Web Lite title, document title field, save timestamp, **Open** and **Save** buttons for `.ink2web.json` project files, the **model button** (opens Model and settings; shows ☁ for GenAI Studio or ⚠ if attention is needed), and **Export**.
+- **Page list** (left sidebar): thumbnail, status, and issue count for every page, plus **+ Add pages**, **Convert all** (or **Stop**), and **Clear all pages**.
+- **Workspace** (main pane): one page at a time. The **original** scan stays visible on the left as you scroll, with the page's figures (or re-read selection controls) above it; the converted **document** sits on the right. Along the top are **← Prev / Next →**, **Convert again**, **↑ / ↓** to reorder pages, and **Remove**.
 
-On a narrow window the page list moves above the workspace, and the original sits above the document.
+On narrow screens, the page list stacks above the workspace and the original sits above the document.
 
 ### Step by step
 
-1. Make sure **Ollama is running** (the llama icon is in your menu bar or system tray).
-2. Start the app with `npm run dev` and open **http://localhost:5173**.
-3. **Choose a model**, then **add your notes** (PDF or photos), or choose **Restore** / **Open** to continue earlier work.
-4. Click **Convert this page**, or **Convert all** in the page list.
-5. **Review each converted page** against the original. Click anything that needs fixing, edit it in place, and press **Done**. Check each figure's alt text. Expect some light editing; the app is an assistant, not a one-click converter.
-6. Click **Export**. It lists anything still flagged (missing alt text, figures to check, LaTeX warnings), each linked to its page. Then **Download HTML**. Only converted pages are included.
-
-A typical page takes from a few seconds to a minute, depending on your model and computer.
+1. Start **Ollama** (the llama icon is in your menu bar or system tray) — unless you are using Purdue GenAI Studio.
+2. Start Ink2Web Lite with `npm run dev` and open **http://localhost:5173**.
+3. Pick a model via the **model button** in the top bar.
+4. Drop a PDF or page images anywhere in the window (or click **Open a saved project** / pick a session under **Recent sessions in this browser**).
+5. Click **Convert this page**, or **Convert all** in the sidebar.
+6. **Review each converted page** beside the original: click any paragraph, equation, or figure to fix it in place, or choose **Image / Redrawn / Both** for mathematical plots.
+7. Click **Export**, clear anything flagged under **Before you export**, and click **Download HTML**.
 
 ---
 
 ## 2. Choosing a model and settings
 
-Click the **model button** in the top bar (it shows the current model, or ⚠ when there's a problem) to open **Model and settings**. Close it with **×**, Esc, or a click outside.
+Click the **model button** in the top bar to open **Model and settings**. Close with **×**, Esc, or clicking outside. Settings cannot be changed while a page is actively converting.
 
-### Where the model runs (3.0)
+### Where the model runs
 
-- **This computer (Ollama)**, the default: nothing leaves your computer.
-- **Purdue GenAI Studio** (☁): pages are sent to Purdue's GenAI Studio, which hosts much larger models. It needs an API key set up once (README › Purdue GenAI Studio). Use it for your own notes, **never for student work**. The ☁ on the model button shows when it's in use.
+- **This computer (Ollama)** *(default)*: everything runs locally; nothing leaves your machine.
+- **Purdue GenAI Studio** (`☁`): sends page images and prompts through Ink2Web Lite's local proxy to Purdue's hosted models. Requires `GENAI_API_KEY` in `.env.local` (see [README.md](README.md#purdue-genai-studio-optional)). Use it for your own lecture notes — **never for student work (FERPA)**.
 
-Each choice remembers its own model. Everything else in this guide works the same with either.
+Each provider remembers its last selected model separately.
 
-### Ollama vision model
+### Vision model selection
 
-The dropdown lists every model installed in Ollama, with vision-capable models first. Models marked **no vision** can't read images. If you've just installed a model, click **Refresh**.
+**Any vision model** works with Ink2Web Lite. For local machines, models are prioritized in recommended order for the **Everyday hardware** pipeline:
 
-**Recommended models:**
+| Priority | Model | Pull command | Best for |
+|---|---|---|---|
+| **1 (Primary)** | **Qwen3.5 4B (MLX)** | `ollama pull qwen3.5:4b-mlx` | Everyday primary model on Apple Silicon Macs (all tasks + Line-DSL redraws) |
+| **2 (Secondary)** | **LightOnOCR-3 4B / 3B** | `ollama pull Maternion/LightOnOCR-3:4b-q4_K_M` *(or `lightonocr-3:3b`)* | Dedicated OCR & native page grounding (`"grounding"` / `""` modes); crops figures with `"Hand-drawn figure."` (switch the top-bar model to `qwen3.5:4b-mlx` or `ministral-3:3b` anytime to run **Describe with the model** or **Redraw with the model** on individual figures without re-converting the page) |
+| **3 (Secondary)** | **Ministral 3 3B** | `ollama pull ministral-3:3b` | Fast non-thinking multimodal model on Windows, Linux, and Mac |
+| **4 (Fallback)** | **Qwen3.5 2B (MLX)** | `ollama pull qwen3.5:2b-mlx` | Lightweight Apple Silicon fallback for simpler documents |
+| **5 (Fallback)** | **Gemma 4 E2B** | `ollama pull gemma4:e2b-it-qat` | Lightweight fallback for simpler documents on any OS |
+| *(8B+ models)* | **Qwen3-VL 8B Instruct+** | `ollama pull qwen3-vl:8b-instruct` | Higher accuracy on beefier hardware; pair with the **Larger models** prompt |
 
-| Model | Install |
-|---|---|
-| Qwen3.5 4B, MLX build (recommended on Apple Silicon) | `ollama pull qwen3.5:4b-mlx` |
-| Qwen3-VL 4B, instruct build (for computers without Apple Silicon) | `ollama pull qwen3-vl:4b-instruct` |
-| Qwen2.5-VL 3B (smaller fallback) | `ollama pull qwen2.5vl:3b` |
+Models labeled **no vision** cannot read images. Click **Refresh** after pulling a new model.
 
-All three run on an 8 GB Apple Silicon Mac. The MLX build uses Ollama's MLX engine and needs a recent Ollama (check with `ollama --version`). Other vision models may work but aren't tested. If you want to adapt the app to another model, see "Tuned for Qwen" in the README.
+### Automatic per-task thinking & Context window
 
-**On a more powerful computer** you can run a larger vision model, such as `qwen3-vl:8b-instruct` (about 6 GB to download), and choose the **Larger models** prompt (below).
+- **Task-aware thinking:** You do not need to pull separate `-instruct` vs `-thinking` models for Qwen 3.5 or Gemma 4. Ink2Web Lite disables thinking (`think: false`) for verbatim page transcription, cropped re-reads, figure bounding boxes, short alt text, detailed figure descriptions, and fast first-pass auto-redraws, while automatically turning thinking **on** (`think: true`) for `qwen3.5:4b-mlx` (and 8B+ models) when repairing failed redraws or when you click **Redraw with the model** manually. Small fallback models (`qwen3.5:2b-mlx`, `gemma4:e2b-it-qat`, `ministral-3:3b`) and `LightOnOCR-3` always keep thinking off for speed and stability.
+- **Context window (`num_ctx`):** Choose **4096**, **8192**, or **16384** right in **Model and settings**:
+  - **8 GB machines:** use **`4096`** with 4B models (`qwen3.5:4b-mlx`, `LightOnOCR-3:4b`) to prevent memory swapping, or **`6144–8192`** with 2B–3B models (`ministral-3:3b`, `qwen3.5:2b-mlx`, `gemma4:e2b-it-qat`) — 4B models have larger weights and wider per-token KV caches sharing the same ~5 GB usable GPU/unified RAM pool.
+  - **16 GB+ machines:** use **`8192`** for everyday pages, or **`12288–16384`** for dense **High detail** pages and mathematical redraws.
 
-**Tip for comparing:** convert one page with one model, switch models, then click **Convert again** on the same page.
+### Transcription prompt
 
-### Use "instruct" models, not "thinking" ones
+- **Everyday hardware** *(default)*: short, high-signal rules suited to 3B–4B models.
+- **Larger models**: richer formatting rules (multi-line alignment, matrices/`cases`, tables, look-alike disambiguation, margin reading order) for 8B+ models and GenAI Studio.
+  - **With Larger models: also write a short title and a detailed description for each figure**: enabled by default when **Larger models** is active; adds one extra pass per figure to produce a math-aware title (rendered in Page Cards caption bars) and a collapsible **Detailed description**.
 
-- **Thinking (reasoning) builds** write out hidden step-by-step "thinking" before they answer. For a page transcription, that thinking can be several times longer than the transcription itself, so conversion is much slower, and long pages can come back empty or cut off.
-- **Instruct builds** answer directly. They're much faster and more reliable for this job.
+### Processing options
 
-**For Qwen3-VL**, the default tags (like `qwen3-vl:4b`) are thinking builds. Use `qwen3-vl:4b-instruct` instead. To check an installed model, run `ollama show <model>` and look for `thinking` under **Capabilities**.
-
-### Transcription prompt: everyday hardware or larger models
-
-Two built-in prompts tell the model how to transcribe a page:
-
-| Choice | For | What it does |
+| Setting | Default | What it does |
 |---|---|---|
-| **Everyday hardware** (default) | Small models on an ordinary laptop: `qwen3.5:4b-mlx`, `qwen3-vl:4b-instruct`, `qwen2.5vl:3b` | A short prompt with a few clear rules. Small models follow it reliably. |
-| **Larger models** | Models around 8B and up on a more powerful computer, e.g. `qwen3-vl:8b-instruct` | More detailed rules: aligned multi-line work, `cases` and matrices, lists and tables, the author's exact notation, look-alike characters (1/l, 0/O, u/v), margin notes in reading order, and figure descriptions written as alt text. |
+| **Image detail** | **Balanced (1344 px)** | Choose **Fast (1024 px)** for large clear writing or **High detail (1792 px)** for tiny subscripts and dense brace notes. |
+| **Boost contrast before reading** | On | Darkens faint pencil/pen ink and whitens paper while **preserving ink colors** (`red`, `green`, `blue`, `orange`, `purple`). |
+| **Ask the model where figures are when its list and the detected drawings disagree** | On | Helps align figure markers with actual drawing crops when page counts differ. |
+| **Redraw mathematical graphs as clean SVG when their equation is in the notes** | On | Automatically drafts crisp mathematical SVGs during conversion and checks curves against the original ink. |
+| **Split dense small-model pages or two-column handouts into bands before reading** | On | Splits tall dense pages or two-column layouts into overlapping strips before reading so small vision models don't skip lines or merge columns. |
+| **Unload model from memory when conversion finishes** | On | Sends `keep_alive: 0` once the queue finishes so Ollama frees 2–5 GB of RAM immediately during review and touch-up (recommended on 8 GB machines). You can also click **Free RAM** in Model and settings anytime. |
 
-Both ask for the same formats, so notes, figures, editing, and export work the same either way. The choice is remembered and applies to pages you convert next; to compare, convert a page, switch, and click **Convert again**.
+### Advanced settings & Prompt Inspector
 
-If the chosen prompt doesn't fit the selected model's size, a hint suggests the other one. It's only a suggestion: a small model given the long prompt tends to drop rules, and a large model given the short one simply leaves some of its ability unused.
-
-A custom prompt (see [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt)) takes the place of this choice while it's in use.
-
-**Figure titles and descriptions (3.2).** With **Larger models** chosen, **also write a short title and a detailed description for each figure** is on by default. After a page converts, the model looks at each figure again, with the notes around it, and writes a short title and a few sentences describing the drawing. The title, in plain words, becomes the alt text; with its math rendered, it is the title in the Page cards caption bar. It's one more request per figure, so a page with figures takes a little longer. Untick it to skip the pass; you can still ask for one figure at a time from its panel.
-
-### Image detail
-
-| Setting | When to use it |
-|---|---|
-| **Fast (1024 px)** | Large, clear handwriting; quick drafts |
-| **Balanced (1344 px)** | The default; good for most notes |
-| **High detail (1792 px)** | Small or dense writing, subscripts, notes under braces and arrows |
-
-### Boost contrast before reading
-
-Darkens the ink and whitens the paper before the model sees it. Helps with pencil, faint pens, and phone photos. **Ink colors are kept**, so colored comments are still noticed.
-
-### Ask the model where figures are…
-
-When the model and the app's drawing detector disagree on how many figures a page has, this asks the model for their positions. Leave it on.
-
-### Advanced
-
-- **Ollama URL:** leave this as `/ollama` unless Ollama runs somewhere unusual.
-- **Context window (num_ctx):** leave it at 8192; 4096 saves memory on an 8 GB machine.
-- **Transcription prompt:** the instructions the model gets for each page. See [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt).
-
-#### Inspecting or changing the prompt
-
-Under **Advanced › Transcription prompt**, click **Inspect or change** to see the exact prompt sent to the model with each page. You can also try an edited version, for example when testing a different model:
-
-1. Edit the text.
-2. Click **Use this prompt**. Pages you convert from now on use it; pages already converted keep their text.
-3. Compare with **Convert again** on a page you know well.
-
-To keep an edited prompt:
-
-1. Type a name under **Save as** and click **Save**. Saved prompts stay in this browser.
-2. To use it later, pick it from the **Prompt** list and click **Use this prompt**.
-3. To make it your everyday prompt, tick **Use “…” whenever the app opens**. Untick it (or delete the prompt) to go back to the built-in prompt on start.
-
-Saving under an existing name updates that prompt (the app asks first). If the updated prompt is the one in use, the new text is used from then on. **Delete** removes the selected saved prompt.
-
-Things to know:
-
-- **The built-in prompts never change.** Your saved prompts are copies, so when an app update improves a built-in prompt you still get it. The **Prompt** list includes both built-in prompts (**Everyday hardware** and **Larger models**); load either to read it or to start an edit from it. A saved prompt remembers which built-in it was based on, and if that one has changed since you saved, a note under the **Prompt** list says so; select it to compare.
-- **Unsaved edits are temporary.** An edited prompt you haven't saved ends when you reload the app. **Reset to built-in** (or **Use the built-in prompt** in the banner) switches back to your chosen built-in prompt at any time; with a start-up prompt set, it comes back next time the app opens.
-- **You'll always see when it's on:** a **Custom prompt in use** banner appears under the top bar (with the saved prompt's name, if it has one), and the prompt shows a **Saved: …** or **Custom (unsaved)** badge (or **Built-in: …** when no custom prompt is in use).
-- **Keep the formats.** The app's clean-up depends on the prompt asking for `[[FIGURE: …]]` lines, `[[note: term | words]]` lines, and math in `$…$`. If an edit drops one, a warning explains what will stop working.
-- **Saved prompts belong to this browser.** They aren't in project files. To move one to another computer or make it part of the app, click **Copy prompt**, paste it into `src/lib/prompts.ts`, and run `npm test`.
-
-Ink2Web Lite is tuned for the built-in prompts; test an edited prompt on a few pages you know well before relying on it.
-
-Your settings are remembered. Settings can't be changed while a page is converting.
+Under **Advanced**:
+- **Ollama URL**: keep `/ollama` unless connecting to a custom endpoint (`OLLAMA_ORIGINS` may be needed for direct cross-origin URLs).
+- **Transcription prompt › Inspect or change**: view the active prompt, test temporary edits, check required format markers (`[[FIGURE: ...]]`, `[[note: term | words]]`, `$...$`), save named presets in your browser, and choose a custom prompt to load on startup. A **Custom prompt in use** banner always shows whenever a non-built-in prompt is active.
 
 ---
 
 ## 3. Adding pages
 
-- **Drag and drop** PDFs or images **anywhere in the window**, or click **+ Add pages** (or **Choose files** on the start screen).
-- **Paste** a screenshot directly with ⌘V / Ctrl+V.
-- Supported formats: **PDF, PNG, JPEG, WebP, GIF, BMP**. iPhone HEIC photos must be converted to JPEG first.
-- Dropping a saved project file (`.ink2web.json`) on the window opens it.
-- Each PDF page becomes its own page in the app, marked **Not converted**. Nothing is converted until you ask.
-- Use **↑ / ↓** at the top of a page to move it earlier or later, and **Remove** to delete it (it asks first if the page is converted). **Clear all pages** starts over.
+- **Drag and drop** PDFs, images, or `.ink2web.json` project files anywhere in the window (or click **+ Add pages** / **Choose files**).
+- **Paste** screenshots directly from your clipboard (`⌘V` / `Ctrl+V`).
+- Supported image formats: **PDF, PNG, JPEG, WebP, GIF, BMP**. (Convert iPhone HEIC photos to JPEG before adding.)
+- Use **↑ / ↓** at the top of a page to reorder it, **Remove** to delete it, or **Clear all pages** in the sidebar to start over.
 
 ---
 
 ## 4. Converting
 
-- **Convert this page** converts **only that page**.
-- **Convert all** (in the page list) converts every page that isn't done yet.
-- Pages convert **one at a time**, in page order. Other pages you convert meanwhile are marked **Waiting**; **Cancel waiting** takes them back out of the queue. You can keep reviewing other pages while this happens.
-- **Stop** (in the page list, in place of Convert all) stops the current page and cancels all waiting pages.
-- **Convert again** on a finished page asks first, because it **replaces your edits on that page**. If it fails or you stop it, the page keeps its previous version and your edits.
-- The model does **one job at a time**: while a page converts, **Re-read** waits; while a re-read runs, **Convert** waits.
-
-| Status | Meaning |
-|---|---|
-| **Not converted** | Added, not converted yet |
-| **Waiting** | In the queue |
-| **Transcribing… / Finding figures…** | Being converted now |
-| **Done** | Converted; ready to review |
-| **Error** | Conversion failed; the message explains why. Click **Convert** to try again. |
-| **Stopped** | You stopped it; click **Convert** to try again |
+- **In the browser:** Click **Convert this page** or **Convert all** (`Waiting` status; **Cancel waiting** / **Stop** anytime). Re-converting an existing page keeps your previous version if cancelled or failed.
+- **Headless CLI (lowest memory on 8 GB machines):** Quit or close extra browser tabs, run `npm run convert -- notes/lecture05.pdf --8gb` in Terminal (uses ~150 MB of Node RAM, crops figures without auto-redraw by default for speed — add `--redraw` if you also want SVG redraws — and writes both `lecture05.ink2web.json` and `lecture05.html`), then click **Open** in the Web UI to review with Ollama stopped (**Review mode (offline)**). Model jobs always run one at a time.
 
 ---
 
 ## 5. Reviewing and editing a page
 
-Each page shows the **original** on the left and the document on the right. The original stays in view as you scroll, with the page's figures (or, while re-reading, the re-read controls) just above it.
+### Review Queue, Scan Spotlight, Loupe & Undo
 
-### Click to edit
+- **Review bar:** Whenever any converted page has `[illegible]` spots, LaTeX warnings, missing/uncertain alt text, or redraws flagged **Compare against sketch**, an amber bar at the top lists the count and lets you step through every item (`←` / `→` or `Alt+[` / `Alt+]`), open the exact block or figure, or resolve flagged redraws in one click (**Looks right** / **Keep image** / **Show both**).
+- **Scan Spotlight & 2.2× Loupe:** Hovering or editing a block on the right highlights the matching horizontal band on the original scan and scrolls it into view. Click **Loupe** above the scan (or hold **`Alt`** while moving the pointer) for a crisp **2.2× magnifier** over tiny subscripts or exponents.
+- **Page-wide Undo / Redo:** Click **↶ Undo** / **↷ Redo** above the document (or press `⌘/Ctrl+Z` and `⌘/Ctrl+Shift+Z` outside text boxes) to undo or redo block edits, deletions, crop adjustments, figure moves, or redraw edits across the page.
+- **Review mode (offline):** When all loaded pages are already converted (such as an opened `.ink2web.json`) and Ollama is turned off, the top bar cleanly shows **Review mode (offline)** — every local edit, crop, redraw, and offline HTML export tool works with zero AI loaded.
 
-In **Preview**, every paragraph, equation, and figure is a separate part you can click. Hovering shows which part you're on.
+### Click to edit (Preview mode)
 
-- **Click a paragraph or equation** to open it in place. You see its source, the toolbar, and a live preview of just that part underneath.
-  - **Done** (or ⌘/Ctrl+Enter) saves the change.
-  - **Cancel** (or Esc) discards it.
-  - Deleting everything in the box and pressing **Done** removes that part.
-  - Clicking another part saves the open one first.
-- **An equation and its "where…" sentence** are one part: the note lines sit right under the equation.
-- **Click a figure** to open its panel in place, with the alt text box ready to type. See [Working with figures](#7-working-with-figures).
-- **With the keyboard:** Tab to a part and press Enter. When you finish, focus returns to that part.
+Every paragraph, display equation block, and figure highlights on hover. Click any block (or Tab to it and press Enter) to open the **in-place editor** with the Markup Toolbar above it and a live preview below it:
 
-Selecting text in the preview (to copy it) doesn't open the editor.
+| Action | Shortcut / Control |
+|---|---|
+| Save edits & close block | **Done** or `⌘/Ctrl+Enter` |
+| Discard edits & close block | **Cancel** or `Esc` |
+| Wrap selection in `$...$` inline math | `$x$` button or `⌘/Ctrl+M` |
+| Format display equation `$$...$$` | `$$` button or `⌘/Ctrl+Shift+M` |
+| Wrap or format boxed equation (`\boxed{...}`) | **Box** button or `⌘/Ctrl+B` |
+| Underline text or `\underline{...}` inside math | **U** button or `⌘/Ctrl+U` |
+| Insert `\frac`, `\int`, `cases`, matrices, Greek symbols | **Symbols ▾** palette |
+| Split one block into two or join adjacent blocks | **Split at cursor** / **Merge next** |
+| Undo toolbar formatting inside box | `⌘Z` / `Ctrl+Z` |
+
+Clearing all text in a block and clicking **Done** removes that block. Switching to **Edit source** edits the entire page's Markdown/LaTeX at once.
 
 ### Re-read from image
 
-When a part came out badly (a garbled line, a misread equation), let the model look again at just that spot instead of fixing it by hand:
+When the model garbled one line or formula:
 
-1. Click the paragraph or equation to open it, then click **Re-read from image…** under the editor.
-2. On the original page (left; the re-read controls appear right above it), **drag a box** around the handwriting for that part. Figure boxes are inactive meanwhile, so you can't move a crop by accident. Drag again to adjust.
-3. Click **Re-read this region**. The model reads only the boxed area, which is much faster than a whole page.
-4. The **proposed replacement** appears under the editor and is scrolled into view. Review it (you can edit it), then choose **Use this** (it goes into the editor), **Try another box**, or **Keep mine**.
-5. Press **Done** in the editor to keep the change. Nothing on the page changes before that; **Cancel** throws it all away.
+1. Click the block to open its editor, then click **Re-read from image…**.
+2. Drag a box over that exact region on the **original** image on the left.
+3. Click **Re-read this region**.
+4. Inspect or tweak the proposed text, click **Use this** (or **Try another box** / **Keep mine**), then press **Done**. Nothing on the page changes until you press **Done**.
 
-Re-read uses the same model and the same **Boost contrast** setting as converting. It isn't available while a page is converting.
+### Markdown and LaTeX reference
 
-### Edit source
-
-**Edit source** shows the whole page's transcription at once, for bigger changes such as moving paragraphs around. It has the same toolbar. Switching to **Edit source** saves any part you have open.
-
-### The toolbar
-
-Select some text (or put the cursor where you want it), then click:
-
-| Button | What it does |
+| Source | Output |
 |---|---|
-| **$x$** | Wraps the selection in `$…$` (math inside a sentence) |
-| **$$** | Makes the line or selection an equation on its own line |
-| **Note** | Adds an arrow/brace note after the equation. Select the term first (e.g. `\omega`); the cursor then waits where you type what the note says |
-| **Box** | Boxes a formula or result (`\boxed{…}`); outside math it creates a boxed equation |
-| **⋮** | Adds skipped-steps dots on the next line |
-| **U** | Underline: `<u>…</u>` for words, `\underline{…}` inside math |
-| **H** | Turns the line into a heading, or back |
-| **Color…** | Colored ink: `[[red: …]]` for words, `\color{red}{…}` inside math |
-
-⌘Z / Ctrl+Z undoes toolbar changes like any other typing.
-
-### Markdown and LaTeX basics
-
-| You type | You get |
-|---|---|
-| `## Heading` | A section heading |
-| A line of text | A line of text (line breaks are kept) |
-| A blank line | A new paragraph (and a new clickable part) |
+| `## Heading` | Section heading |
+| Plain line break | Kept cleanly as a line break |
+| Blank line | New paragraph / clickable block |
 | `- item` or `1. item` | Bulleted or numbered list |
 | `**bold**`, `*italic*` | **bold**, *italic* |
-| `$x^2$` | Math inside a sentence (no spaces just inside the `$`s) |
-| `$$\int_0^1 x\,dx$$` | An equation on its own line |
-| `$$\begin{aligned} a &= b \\ &= c \end{aligned}$$` | Several aligned equation lines |
-| `[[FIGURE 2]]` | Where figure 2 appears |
-| `\$` | A literal dollar sign |
+| `$x^2 + 1$` | Inline math (do not put regular prose inside `$...$`) |
+| `$$\int_0^1 x\,dx$$` | Centered display equation |
+| `$$\begin{aligned} a &= b \\ &= c \end{aligned}$$` | Aligned multi-line equations |
+| `[[FIGURE 2]]` | Places Figure 2 |
+| `\$` | Literal dollar sign |
 
-Keep ordinary sentences **outside** of `$…$`. Screen readers read anything inside as math.
-
-### Warnings
-
-- **LaTeX warnings** (yellow box) flag common slips: unbalanced braces, unmatched `\begin`/`\end` or `\left`/`\right`, or a stray `$`.
-- **Math shown in red** in the preview failed to render. Click it to fix the LaTeX.
-
-### What to proofread
-
-- misread words, and spelling the model changed
-- similar-looking symbols and digits: 7 vs 9, ℓ vs 1, x vs ×, subscripts vs superscripts
-- missing limits on integrals or sums
-- notes: the right term, the right words, nothing invented
-- figure alt text: only the drawing, not the writing next to it (see [Known issues](#11-known-issues))
+Yellow **LaTeX warnings** highlight unbalanced braces, unmatched `\left`/`\right`, or stray `$` delimiters; equations shown in red failed MathJax parsing and can be fixed in place.
 
 ---
 
@@ -271,236 +179,137 @@ Keep ordinary sentences **outside** of `$…$`. Screen readers read anything ins
 
 ### Arrow and brace notes
 
-When you point an arrow at a term or put a brace under part of an equation with a note, Ink2Web Lite keeps the equation clean and adds a sentence after it:
+Notes pointing at part of an equation are stored as one line per note right underneath the equation:
 
-> $$u(t) = A\cos(\omega t) + B\sin(\omega t) = R\cos(\omega t - \delta)$$
-> *where ω is the frequency, a = ωt, and b = −δ.*
-
-In the source, each note is one line right after its equation:
-
-```
-$$u(t) = R\cos(7t - \delta)$$
+```markdown
+$$u(t) = R\cos(\omega t - \delta)$$
 [[note: R | new amplitude]]
 [[note: \delta | phase shift]]
 ```
 
-The part before `|` is the **term** the arrow or brace points at, in LaTeX without `$`. The part after `|` is **what you wrote** there. The **Note** button writes this line for you. The app chooses the wording:
+- In **Classic** look, these render as a smooth *"where…"* sentence (*"where R is new amplitude and δ is phase shift"*).
+- In **Page cards** look, multi-note groups render cleanly in a structured `.notebox` callout list so long derivations stay scannable.
+- Purely mathematical equivalence notes automatically use `=` (e.g. `[[note: \cos(-\delta) | \cos(\delta)]]` → *"where cos(−δ) = cos(δ)"*), while verbal annotations use *is*.
 
-| Note | Reads as |
-|---|---|
-| `[[note: \omega \| frequency]]` | where ω is **the** frequency |
-| `[[note: c \| the damping constant]]` | where c is the damping constant |
-| `[[note: -0.3 \| upward]]` (a describing word) | where −0.3 is upward |
-| `[[note: u_h \| oscillation with frequency \omega_n]]` (words and math) | where u_h **is** oscillation with frequency ωₙ |
-| `[[note: \cos(-\delta) \| \cos(\delta)]]` (math only) | where cos(−δ) **=** cos(δ) |
-| `[[note: \omega t \| a]]` (a single letter) | where a = ωt |
-| `[[note red: -0.3 \| upward]]` | the same, in red |
+Use the **Note** toolbar button (select the term first, e.g. `\omega`) to insert `[[note: \omega | ]]` with the cursor positioned cleanly.
 
-A note with any words gets "is"; only a note that is purely math gets "=". A note with no `|` is shown as written, in italics.
+### Boxes, skipped steps, underlines, and colors
 
-**Want an arrow or brace drawn in the equation for a particular spot?** Type it yourself; it renders as drawn:
-
-| In your notes | Type this inside math |
-|---|---|
-| A brace under part of an equation, with a note | `\underbrace{\cos(-\delta)}_{\cos(\delta)}` |
-| A brace over part of an equation | `\overbrace{\omega t}^{a}` |
-| An arrow pointing up at a term, with a note below | `\underset{\substack{\uparrow\\ \text{new amplitude}}}{R}` |
-
-### Other marks
-
-| In your notes | Toolbar | Source |
+| Handwritten mark | Toolbar button | Source syntax |
 |---|---|---|
-| A box around a formula or result | **Box** | `$$\boxed{R = \sqrt{A^2+B^2}}$$` |
-| A column of dots for skipped steps | **⋮** | `$$\vdots$$` on its own line |
-| Underlined words | **U** | `<u>critically damped</u>` |
-| Underlined math | **U** (inside math) | `$\underline{x}$` |
-| Words in a different ink color | **Color…** | `[[red: without crossing equilibrium]]` |
-| Math in a different color | **Color…** (inside math) | `$\color{red}{u'(0) = -0.3}$` |
+| Boxed formula | **Box** | `$$\boxed{R = \sqrt{A^2 + B^2}}$$` |
+| Skipped steps | **⋮** | `$$\vdots$$` on its own line |
+| Underlined prose / math | **U** | `<u>critically damped</u>` or `$\underline{x}$` |
+| Colored prose / math ink | **Color…** | `[[red: key assumption]]` or `$\color{red}{u'(0)}$` |
 
-**Colors:** `red`, `green`, `blue`, `orange`, and `purple` are shown in darker shades that meet WCAG contrast on white, and colored words are also italic, so the difference never depends on color alone.
-
-A circle, box, or bracket you draw around **words** just to highlight them is ignored; the words are transcribed normally.
+All ink colors (`red`, `green`, `blue`, `orange`, `purple`) map to high-contrast shades that meet WCAG contrast guidelines on white, and colored prose uses italics so color is never the sole indicator.
 
 ---
 
 ## 7. Working with figures
 
-Every figure opens in a **figure panel** that takes its place in the document, just as a paragraph opens in the editor. Open it by clicking the figure in the document, its box on the original, or its number in the **Figures** row above the original. A number marked **!** needs checking. **Done** (or Esc) closes the panel.
+Click any figure in the document, its crop box on the original image, or its badge in the **Figures** row above the original to open its in-place **Figure Panel**. Press **Done** or **Esc** to close it.
 
-While a figure's panel is open, its box on the original is selected (blue) so you can adjust the crop. From top to bottom, the panel has the alt text and caption, the layout, the crop tools (**Snap crop to ink**, **Delete figure**), the optional **Redraw from the math** section (collapsed until you use it), and a preview of the figure as it will appear in the document.
-
-### Badges
+### Status badges
 
 | Badge | Meaning |
 |---|---|
-| **Found by detector** | The app found this drawing in the ink; the model didn't mention it. |
-| **Check crop** | The crop or position is a guess and may need attention. Adjusting the box clears it. |
-| **Check alt text** | The alt text looks like it includes writing from next to the drawing. See [Moving writing out of the alt text](#moving-writing-out-of-the-alt-text). |
-| **Not placed in text** | The figure has no marker in the transcription, so it won't appear in the export. Click **Insert in text**. |
-| **Redrawn** / **Redrawn + image** | The document shows the figure redrawn from the math. See [Redrawing figures from the math](#redrawing-figures-from-the-math). |
-| **Redraw has errors** | You chose the redraw, but its spec has errors, so the document shows the image until they're fixed. |
+| **Found by detector** | Detected by ink analysis rather than a model `[[FIGURE]]` marker. |
+| **Check crop** | Crop or placement is estimated; dragging/resizing the crop box clears this. |
+| **Check alt text** | Alt text appears to contain notes written *beside* the drawing instead of describing the drawing itself. |
+| **Compare against sketch** | Auto-redraw had medium/low ink agreement — compare the SVG against the original sketch and click **Looks right** or switch back to **Image**. |
+| **Not placed in text** | No `[[FIGURE n]]` marker exists in the page text; click **Insert in text** to place it. |
+| **Redrawn** / **Redrawn + image** | Showing the mathematical SVG redraw (alone, or with the original crop collapsed underneath). |
+| **Redraw has errors** | **Redrawn** or **Both** was selected, but the spec currently has syntax/math errors — the document safely shows the image until fixed. |
 
-### Alt text
+### Alt text, Captions, Detailed descriptions, and Moving text
 
-Every figure needs alt text, the description a screen reader reads aloud. The app writes a first draft, but **you know what the drawing is meant to show**, so please review it. Good alt text says what kind of drawing it is, what matters for the lesson, and the labels a student needs, in plain words. It describes **the drawing only**; sentences and formulas written next to it belong in the notes.
+- **Alt text**: Concise plain-language description read by screen readers.
+- **Caption**: Optional visible caption below the figure (`$...$` math renders cleanly). In **Page cards**, if no caption is entered, the caption bar shows the figure's title (from the figure pass, or derived from a redraw's `from:` equation).
+- **Detailed description**: Multi-sentence mathematical description shown in a collapsible `<details>` block under the figure (auto-expanded when printing). Generate one per figure with **Describe with the model**.
+- **Move to notes**: If prose or equations beside a sketch leaked into the alt text, highlight that portion in the alt text box and click **Move to notes** to insert it into the transcription immediately after the figure.
 
-The **Caption** is optional, visible text shown under the figure; math in `$…$` is rendered. In the **Page cards** export, every figure has a caption bar: it shows your caption if there is one, otherwise the figure's title (the alt text, with its math rendered when the model's figure pass wrote it).
+### Crops and Layout
 
-### Detailed description (3.2)
-
-Alt text should be short. When a figure needs more (a graph with several marked points, a region between curves), add a **Detailed description**: a few sentences, with math in `$…$`. It appears under the figure as a collapsed **Detailed description** that readers open if they want it; printing shows it in full.
-
-- With the **Larger models** prompt, the app writes one for each figure as the page converts (see [Transcription prompt](#transcription-prompt-everyday-hardware-or-larger-models)).
-- **Describe with the model** (in the figure panel) asks again for this figure. It replaces both the alt text and the description, so it asks first.
-- Check it against the drawing, like the alt text: it should describe only what's drawn, not explain the math.
-
-### Moving writing out of the alt text
-
-Small models sometimes copy the sentence written next to a drawing into the drawing's alt text, for example:
-
-> graph with x-axis labeled a to b, shaded region under the curve, with text "∫ₐᵇ f(x) dx is area of the shaded region." written beside it
-
-When the alt text looks like this, the figure is marked **Check alt text** with a short hint. To fix it:
-
-1. In the alt text box, **select the sentence** that belongs in the notes (here, the quoted part).
-2. Click **Move to notes**.
-
-The sentence is removed from the alt text (along with leftovers like "with text … written beside it") and added as a line right after the figure, so it appears next to the drawing as in your notes. If the figure has **Put text beside the figure** on, the moved line is counted as one of the lines beside it. With nothing selected, **Move to notes** moves the whole alt text; type a new description afterwards.
-
-You can always do the same by hand: cut the sentence from the alt text and paste it after the figure in **Edit source**.
-
-### Adjusting the crop
-
-Open the figure (its box on the original turns blue). Then drag inside the box to move it, drag a corner to resize it, or drag on empty space to draw a new box. With the keyboard: Tab to the selected box, then **arrow keys** move it and **Shift + arrow keys** resize it. **Snap crop to ink** tightens the box around the drawing.
-
-### Layout in the document
-
-| Control | What it does |
-|---|---|
-| **Position ↑ Up / ↓ Down** | Moves the figure one line (or one whole equation) earlier or later in the text |
-| **Align** | Left, Center, or Right |
-| **Width** | 20–100% of the text column |
-| **Put text beside the figure** | For Left/Right figures, the following text sits next to the drawing |
-| **Lines beside it** | How many lines sit beside the figure; text after that starts below it |
-| **Side by side with figure n** | Puts this figure on one line with the figure before it (see below) |
-
-#### Figures side by side
-
-Two drawings next to each other in your notes (a "before" and "after" sketch, say) can sit side by side in the document too. When the drawings are level with each other on the page and nothing is written between them, the app does this by itself when it converts the page.
-
-To do it by hand, open the second figure and tick **Side by side with figure n**. If there is text between the two figures, the second one moves up to right after the first. Rows can hold more than two figures: tick the box on each one.
-
-- **Width** is each figure's share of the line. Ticking the box shrinks the widths if they don't fit.
-- **Align** of the first figure places the whole row.
-- Text never flows beside a figure in a row, and on a phone the figures stack.
-- Moving a figure with **Position ↑ / ↓**, or unticking the box, ends the row.
-
-### Adding or removing figures
-
-- **+ Add** (in the Figures row above the original) looks for a drawing that isn't a figure yet and adds it in the right place; otherwise it adds a box at the end for you to draw.
-- **Delete figure** (in its panel) removes the figure and its marker.
+- **Adjusting crops**: Drag inside the selected blue box to move it, drag corners to resize, drag empty space to draw a new box, or use **arrow keys** (`Shift + arrows` to resize) when focused. Click **Snap crop to ink** to tighten automatically.
+- **Add / Delete**: Click **+ Add** in the **Figures** row above the original to add a missed figure; click **Delete figure** inside its panel to remove a false detection.
+- **Layout controls**: **Position ↑ Up / ↓ Down**, **Align** (Left / Center / Right), **Width** (`20–100%`), **Put text beside the figure**, **Lines beside it**, and **Side by side with figure n** (automatically stacks side-by-side drawings on wide screens and wraps on narrow screens).
 
 ---
 
 ### Redrawing figures from the math
 
-Some figures are mathematics drawn by hand: a graph of a function in the notes, a shaded region between two curves, a phase plane of a system. Ink2Web Lite can redraw these **exactly from the equation**. The drawing is clean at any size, and its alt text is computed from the math: the zeros, jumps and asymptotes of a graph; where two curves meet; each equilibrium and its type; and what each trajectory does.
+Ink2Web Lite 3.5.0 uses the **Clean-Slate Redraw v2** engine to turn hand-drawn calculus, ODE, signals/systems, and schematic diagrams into exact inline SVGs with computed alt text — while **always keeping your cropped original sketch one click away**. Check **Overlay sketch** (with the opacity slider) above the redrawn SVG to inspect your original handwriting transparently behind the computed plot. (If the page was transcribed with an OCR-only model such as `LightOnOCR-3`, switch the top-bar model to a general VLM like `qwen3.5:4b-mlx` or `ministral-3:3b` to run **Redraw with the model** in place.)
 
-The cropped image stays the default. A redraw is an option you choose figure by figure.
+#### Automatic vs Manual Redraw
 
-**To redraw a figure:**
-1. Open the figure's panel and expand **Redraw from the math** (near the bottom of the panel).
-2. Click **Redraw with the model**. The model looks at the figure and the notes around it, finds the equation the figure shows, and writes a short description (a *spec*). If the notes don't contain that equation, it says so and the figure stays an image.
-3. Compare **Original** and **Redrawn** side by side, and check **Redrawn from:** (the equation the redraw uses). Open **Alt text for the redrawn figure** to read what a screen reader will hear.
-4. At the end of the section, under **In the document**, choose:
+- During page conversion (when enabled in Settings), the app analyzes the sketch's ink geometry, pulls nearby equations into an **Equation Menu (`@eq1`, `@eq2`)**, asks the model for a concise **Line-DSL** spec, and compares the resulting curves back against the original ink:
+  - **High confidence**: automatically shows **Redrawn** (you can still switch back to **Image** or **Both** anytime).
+  - **Medium confidence**: shows **Both** and flags **Compare against sketch** so you can visually confirm.
+  - **Low confidence**: keeps **Image** active while saving the draft spec so you can inspect or tweak it manually.
+- On any figure manually, expand **Redraw from the math** and click **Redraw with the model** or pick a category (**Graph / Piecewise**, **Region / Riemann sum**, **Phase plane / Slope field**, **s-plane / Number line**, **Block / Spring diagram**) and click **Start from template**.
 
-| Choice | The document shows |
-|---|---|
-| **Image** (default) | The cropped image, with your alt text. |
-| **Redrawn** | Only the redraw, with its computed alt text. |
-| **Both** | The redraw, with the original sketch in a collapsed "Original sketch" section below it. |
+#### Choosing what appears in the document
 
-**The redraw is idealized:** it follows the equation, not your pencil. The window, the labels, the points you marked, and where your curves start come from the sketch; everything else is computed. If your sketch was deliberately rough or qualitative, keep the image.
+Under **In the document**, toggle between:
+- **Image**: Shows only the cropped original drawing.
+- **Redrawn**: Shows only the crisp inline SVG and its computed accessible description.
+- **Both**: Shows the SVG redraw with the cropped original sketch in a collapsible **Original sketch** panel underneath it.
 
-**Fixing a spec.** The spec is shown under the drawings and you can edit it; the redraw updates when you pause typing, and any problems are listed right under the spec in plain words. Edits are kept even if you close the panel straight away. Typical fixes: the window (`"window": {"x": [0, 8], "y": [-1, 1]}`), a misread coefficient in an expression, or a starting point for a trajectory. **Ask the model again** replaces the spec; **Remove redraw** goes back to the image. You can also start from an example with **Write a spec by hand** (choose the kind first).
+#### Editing with Visual Controls or Line-DSL
 
-Expressions use calculator syntax: `exp(-t)*cos(3t)`, `2t^2 - 1`, `sqrt(x)`, `ln(x)`, `pi`, `e^(-t)`, and `u(t-2)` for a unit step. The fields for each kind are listed in `docs/REDRAW.md`.
+- **Scene & layer controls**: Adjust `from` (title/equation), coordinate space (`Cartesian`, `Polar`, `Complex s-plane`, `1D Number line`), axis labels & min/max bounds (leave Y blank for auto-framing), and edit/add/remove individual `curve`, `shade`, or `point` layers without writing code.
+- **Spec (Line-DSL or JSON)** *(collapsible drawer)*: Edit the Line-DSL directly with live validation and debounce preview. Supports native LaTeX (`\frac{1}{x}`, `\sqrt{x}`, `u_c(t)`, `\begin{cases}...\end{cases}`), constants (`pi/2`), slope/vector fields, Riemann sums, complex poles/zeros/ROC, and block diagrams.
+- **Legacy v1 JSON specs**: Older saved `.ink2web.json` specs continue to render identically, and display an **Upgrade to Line-DSL** button inside the Redraw panel when you want to convert them to v2.
 
-**Constants in number fields.** Fields that take numbers (`window`, `between`, `at`, `start`, `ticks`, `size`, `width`, `A`) also accept a constant written in quotes: `"pi"`, `"pi/2"`, `"-2pi"`, `"3pi/4"`, `"e"`, `"sqrt(2)"`. For example, `"between": [0, "pi"]` or `"window": { "x": ["-2pi", "2pi"] }`. The alt text then says π exactly instead of 3.14. A tick given without a label is labeled the same way: `"ticks": { "x": ["pi", "2pi"] }` shows π and 2π.
+For the full syntax guide, see [docs/REDRAW.md](docs/REDRAW.md).
 
-**What it can't redraw:** sketches without an equation in the notes (a spring and mass, a qualitative shape), other kinds of figures, and phase planes whose equilibria fill a whole line. These stay images.
-
-**Good to know:**
-- A spec with errors never replaces the image, even if you chose **Redrawn**; the export checklist reports it.
-- A figure shown only as **Redrawn** doesn't need your alt text (its own is computed). **Both** still shows the image, so keep that alt text.
-- Asking the model uses it the same way **Re-read from image** does: it waits while pages are converting.
+---
 
 ## 8. Saving your work
 
-### Autosave
-
-Everything you do is saved in the browser a moment after each change: page images, transcriptions, notes, figures, crops, alt text, and the title. The top bar shows when it was last saved. An edit still open in the in-place editor is kept when you press **Done** or go to another page.
-
-When you open the app again, it asks **Continue where you left off?**: **Restore** brings everything back; **Start fresh** deletes the saved work. Until you choose, autosave is paused.
-
-**Clear all pages** removes all pages and the saved copy. It asks first if you have converted pages.
-
-### Project files
-
-**Save** (top bar) downloads one project file (for example `lesson21.ink2web.json`) with everything, including the page images. **Open** (or dropping the file on the window) loads it back, on this computer or another one.
-
-### Good to know
-
-- **Autosave lives in this browser, on this computer.** Safari and Chrome keep separate copies, and so do `npm run dev` (port 5173) and `npm run preview` (port 4173). Use project files to move work between them.
-- **Clearing the browser's site data deletes autosaved work.** Keep a project file for anything you'd hate to lose.
-- **If saving ever fails**, a warning appears; save a project file right away.
+- **Browser autosave (IndexedDB):** Edits, pages, crops, and redraw specs save continuously in your browser. Reopening offers **Continue where you left off?** (**Restore** / **Start fresh**).
+- **Recent sessions:** The welcome screen lists your recent browser sessions so you can jump back between documents quickly.
+- **Multi-tab protection:** If the same app URL is open in two tabs and another tab saves newer edits, an alert banner offers **Reload latest** or **Keep and save this tab** so tabs never silently overwrite each other.
+- **Project files (`.ink2web.json`):** Use **Save** / **Open** in the top bar for permanent backups, sharing drafts, or moving between `localhost:5173` (dev) and `localhost:4173` (preview).
 
 ---
 
 ## 9. Exporting
 
-The **title** in the top bar becomes the exported page's title and main heading. While the title is still the file name, the **first heading in your notes** is used instead.
-
-Click **Export** (top bar):
-
-- **Before you export** lists what is still flagged on converted pages: figures with no alt text or alt text to check, figures whose crop needs checking, LaTeX warnings, and failed re-conversions. Click **Page n** to go straight there (a figure opens in its panel).
-- **Look** (3.2): **Page cards** (the default) puts each page of your notes on its own card with a "Page 1 of 3" badge, a caption bar under every figure, and the title on the first card. Printing puts one card on each letter-size sheet and opens every detailed description. **Classic** is the single column of earlier versions. The choice is remembered.
-- **Show page badges** (Page cards) or **Mark page boundaries** (Classic) labels the pages.
-- **Link to the original** (Page cards, when the notes came from a PDF or image): adds "Open the original notes (FTC.pdf)" under the title. The link expects that file in the same folder as the HTML.
-- **Only converted pages are exported**; the dialog says how many are left out.
-
-**Download HTML** saves one `.html` file with all figures embedded. Viewers need an internet connection the first time they open it, because MathJax loads from a CDN.
-
-The exported HTML is the finished document; the **project file** is what you need to keep editing later.
+1. Check and edit the **Document title** in the top bar (if left as a file name, the first heading in your notes becomes the HTML `<title>` and `<h1>`).
+2. Click **Export** in the top bar.
+3. Clear any items under **Before you export** (each links straight to its page/figure).
+4. Choose export options:
+   - **Look**: **Page cards** *(default — one card per page, figure caption bars, one card per letter sheet when printing)* or **Classic** *(continuous single-column reading flow)*.
+   - **Show page badges / Mark page boundaries**: Toggle visible page numbers/dividers.
+   - **Link to the original**: When converting a PDF/image in Page Cards mode, adds a link at the top of page 1 (place the original file in the same folder as the HTML).
+   - **Work offline**: Pre-renders all MathJax equations into static CHTML with embedded fonts inside the exported `.html` file so viewers can open it anywhere with zero internet connection. Leave unchecked for smaller files that load MathJax from a CDN.
+5. Click **Download HTML**. Unconverted pages are excluded.
 
 ---
 
 ## 10. Accessibility checklist
 
-- [ ] Every figure has meaningful alt text (not just "diagram").
-- [ ] No figure is marked **Check alt text**, and alt text describes only the drawing.
-- [ ] The title is a real title, not a file name.
-- [ ] Headings follow the structure of your notes.
-- [ ] No red math in the preview, and no LaTeX warnings left.
-- [ ] Sentences are plain text, not inside `$…$`.
-- [ ] Each "where…" note names the right term.
-- [ ] Colored notes still make sense if read aloud without the color.
-- [ ] Figures appear next to the text that refers to them.
-- [ ] You've proofread the transcription and notes against the original.
+- [ ] Document title in the top bar reflects the lesson/topic, not just a scan filename.
+- [ ] Headings reflect real section hierarchy (`##`, `###`).
+- [ ] Zero red MathJax parse errors and zero LaTeX warnings remain.
+- [ ] Plain prose sentences sit *outside* `$...$` math delimiters.
+- [ ] Every visible image figure has clear, concise alt text describing only the drawing (and **Check alt text** is resolved).
+- [ ] Every **Redrawn** figure matches the lesson equation (`Redrawn from:`) and its **Compare against sketch** check (if shown) has been verified.
+- [ ] Colored highlights make sense when read aloud without color cues.
 
 ---
 
 ## 11. Known issues
 
-These come from what small vision models can and can't do reliably. Each has a quick fix in the app.
-
-| Issue | What to do |
+| Issue | Quick Fix |
 |---|---|
-| **Writing next to a figure can end up in its alt text.** Small models sometimes include a sentence written beside a drawing in the drawing's description instead of the notes. The app catches the common forms automatically, but not all. | Look for **Check alt text**. Select the sentence in the alt text and click **Move to notes** (see [Moving writing out of the alt text](#moving-writing-out-of-the-alt-text)). |
-| **Words and symbols can be misread** (a handwritten 7 read as 9, for example). | Proofread; **High detail** helps. Click the part to fix it. |
-| **Spelling gets "corrected."** Small models tend to fix the author's spelling despite instructions to copy exactly. | Fix it back if it matters. |
-| **A "where…" note can name the wrong term.** | Click the equation and fix the `[[note: term \| words]]` line. |
-| **Very flat drawings** (a lone number line, a single long arrow) may not be detected as figures. | Click **+ Add** in the Figures row above the original. |
+| Nearby prose captured inside figure alt text | Look for **Check alt text**, select the sentence inside the alt text box, click **Move to notes**. |
+| Misread handwritten numbers or variables | Click block → **Re-read from image…** or fix text directly; **High detail (1792 px)** helps. |
+| Model alters author spelling | Proofread against original pane and restore wording if needed. |
+| `[[note:]]` highlights wrong sub-term | Open the equation block and edit the left side of `\|` in `[[note: term | words]]`. |
+| Faint number line or arrow skipped by ink detector | Click **+ Add** in the **Figures** row above the original scan. |
 
 ---
 
@@ -508,60 +317,28 @@ These come from what small vision models can and can't do reliably. Each has a q
 
 | Problem | Fix |
 |---|---|
-| **"Cannot reach Ollama"** | Open the Ollama app (or run `ollama serve`), then click **Refresh**. |
-| **"GenAI Studio refused the API key"** | Check `GENAI_API_KEY` in `.env.local`, then restart `npm run dev`. |
-| **"Cannot reach GenAI Studio"** | Check your internet connection and that `npm run dev` is running, then **Refresh**. |
-| **GenAI Studio is slow or rate-limited** | The app waits and retries on its own; converting fewer pages at once helps. |
-| **No models in the list** | Install one: `ollama pull qwen3.5:4b-mlx` (Apple Silicon) or `ollama pull qwen3-vl:4b-instruct`, then **Refresh**. |
-| **A model is very slow, or returns empty or cut-off text** | It's probably a thinking build. Use `qwen3.5:4b-mlx` (Apple Silicon) or `qwen3-vl:4b-instruct`. |
-| **Results suddenly look different** | Check for the **Custom prompt in use** banner above **Convert all** (a saved prompt may be set to start with the app). Click **Use the built-in prompt**, then **Convert again**. Also check which built-in prompt is chosen under **Model and settings › Transcription prompt**. |
-| **The app seems to behave like an older version** | Check `grep version package.json`, restart `npm run dev`, and hard-refresh the browser tab (⌘⇧R). |
-| **A sentence from the notes is missing, and it's in a figure's alt text** | Select it in the alt text and click **Move to notes**. |
-| **A sentence from the notes is missing everywhere** | The model skipped it. Click the part before it and type it in, or try **Convert again** (with **High detail**). |
-| **Clicking the preview doesn't open the editor** | Make sure you're on **Preview**, not **Edit source**. If you were selecting text, click once without dragging. |
-| **A toolbar button did something odd** | Press ⌘Z / Ctrl+Z to undo it. Box, Underline, and Color act differently inside and outside math, so check where the cursor is. |
-| **My work didn't come back after reopening** | Use the same browser and the same address (5173 or 4173). Otherwise open a project file. |
-| **"Couldn't save in this browser"** | Click **Save** (top bar) now; then free space or leave a private window. |
-| **"This file is not an Ink2Web Lite project"** | Open the `.ink2web.json` file from **Save**, not the exported `.html`. |
-| **Equations come out as plain text** | Click the line and use **$$** (whole line) or **$x$** (part of a sentence). |
-| **A "where…" sentence names the wrong term** | Click the equation and fix the term in its `[[note: term \| words]]` line. |
-| **A box or note appears that isn't in my notes** | Click it and delete it. |
-| **Lots of misread words** | Try **High detail**, keep **Boost contrast** on, then **Convert again**. |
-| **A figure is missing** | Click **+ Add** in the Figures row above the original. |
-| **Something that isn't a drawing became a figure** | **Delete** it in its figure card. |
-| **Conversion is very slow** | Use an instruct build; try **Fast** detail or a context window of 4096. |
-| **Math shows as raw `\(…\)` in the exported file** | The viewer is offline; MathJax needs the internet to load. |
+| **"Cannot reach Ollama"** | Launch the Ollama app (or run `ollama serve`), then click **Refresh**. |
+| **"GenAI Studio refused the API key"** | Verify `GENAI_API_KEY` in `.env.local`, then restart `npm run dev`. |
+| **No vision models listed** | Pull `qwen3.5:4b-mlx` (Apple Silicon) or `qwen3-vl:4b-instruct`, then click **Refresh**. |
+| **Very slow conversion / empty output** | On 8 GB Macs/PCs, a large **Context window** (`> 4096` with a 4B model) or **High detail** can push Ollama into swap — lower `num_ctx` to `4096`, pick **Fast (1024 px)** detail, or switch to a 2B–3B fallback model (`qwen3.5:2b-mlx`, `ministral-3:3b`). |
+| **`LightOnOCR-3` leaves `"Hand-drawn figure."` / skips auto-redraw** | `LightOnOCR-3` is OCR-only and cannot answer figure-description or Line-DSL redraw prompts. Edit the alt text yourself, or switch the top-bar model to `qwen3.5:4b-mlx` or `ministral-3:3b` and click **Describe with the model** / **Redraw with the model** on the figure. |
+| **Math shows raw `\(…\)` when opened offline** | Re-export with **Work offline** checked in the Export dialog. |
+| **Redrawn figure doesn't look right** | Open **Redraw from the math**, tweak bounds/expressions in **Scene & layer controls** or **Spec (Line-DSL or JSON)**, or switch **In the document** back to **Image** or **Both**. |
+| **Newer edits banner between tabs** | Click **Reload latest** to pull the newer tab's state, or **Keep and save this tab** if you want this tab's edits to win. |
+| **Saved work missing after switching commands** | `npm run dev` (`:5173`) and `npm run preview` (`:4173`) have separate browser storage; export/open a `.ink2web.json` project file to transfer work. |
 
 ---
 
 ## 13. FAQ
 
 **Does anything leave my computer?**
-Not by default: your notes go only to Ollama on your own machine. If you choose **Purdue GenAI Studio** (☁), page images and prompts are sent to GenAI Studio. Saved work always stays in this browser or in project files you download.
+Not when using **This computer (Ollama)**. Only when you explicitly switch to **Purdue GenAI Studio (`☁`)** are page images sent to Purdue's servers. Autosaves and project files always stay local.
 
-**Can I close the app and continue later?**
-Yes. Reopen it and choose **Restore**, or open a project file.
+**Will auto-redraw ever delete my hand-drawn sketch?**
+No. The original crop is always kept in your project. You can switch any figure between **Image**, **Redrawn**, and **Both** at any time, or remove the redraw completely.
 
-**Why does writing next to a figure sometimes end up in its alt text?**
-The model is asked to describe each drawing and to keep the writing beside it in the notes, but small models sometimes include that writing in the description anyway. The app fixes the most common forms automatically and flags the rest with **Check alt text**; **Move to notes** fixes them in one click.
+**Can exported HTML files be opened completely offline?**
+Yes — check **Work offline** in **Export** to pre-render all MathJax math and embed fonts directly in the HTML file.
 
-**Can I change what the model is asked to do?**
-Yes: **model button › Advanced › Transcription prompt** shows the prompt, lets you try an edited version, and save it under a name (optionally to start with the app). See [Inspecting or changing the prompt](#inspecting-or-changing-the-prompt).
-
-**Can I edit the rendered math directly, like in a word processor?**
-Not quite: clicking opens that part's source, with a live preview right underneath and a toolbar for the common marks. This keeps the export exact and predictable.
-
-**Which models does it support?**
-On Apple Silicon, qwen3.5:4b-mlx is recommended. Elsewhere, use qwen3-vl:4b-instruct (or qwen2.5vl:3b, which is smaller). On a more powerful computer, try a larger model such as qwen3-vl:8b-instruct with the **Larger models** prompt. Others may work but aren't tested.
-
-**Will it fix mistakes in my notes?**
-It's told not to. Small models sometimes fix spelling anyway, so proofread.
-
-**Why does my arrow note become a "where" sentence?**
-Placing an arrow inside an equation is the hardest thing for a small model to get right, and a note inside the math interrupts a screen reader. A sentence after the equation is reliable and reads naturally.
-
-**Why are my red comments a darker red in the export?**
-Bright colors are hard to read on white; the export uses darker shades that meet WCAG contrast.
-
-**Which browser should I use?**
-Any current Chrome, Edge, Firefox, or Safari. Autosave doesn't work in private windows that block storage.
+**How do I write mathematical redraw specs by hand or test them?**
+You can use **Scene & layer controls** in the Figure Panel, edit the **Spec (Line-DSL or JSON)** box directly, or open `http://localhost:5173/figure-lab.html` during `npm run dev` for a live sandbox. See [docs/REDRAW.md](docs/REDRAW.md).
